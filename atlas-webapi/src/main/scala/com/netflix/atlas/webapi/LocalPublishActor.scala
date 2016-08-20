@@ -36,7 +36,24 @@ import spray.http.HttpResponse
 import spray.http.MediaTypes
 import spray.http.StatusCode
 import spray.http.StatusCodes
+import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
 
+object LocalPublishActor{
+  import com.netflix.atlas.webapi.PublishApi._
+
+  def name = "LocalPublishActor"
+
+  def extractShardId: ExtractShardId = {
+    case PublishRequest(_, _) =>
+      this.toString
+  }
+
+  def extractEntityId: ExtractEntityId = {
+    case msg @ PublishRequest(_, _) =>
+      (this.toString, msg)
+  }
+}
 
 class LocalPublishActor(registry: Registry, db: Database) extends Actor with ActorLogging {
 

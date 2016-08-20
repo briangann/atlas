@@ -8,6 +8,7 @@ lazy val root = project.in(file("."))
     `atlas-core`,
     `atlas-jmh`,
     `atlas-json`,
+    `atlas-akka-cluster`,
     `atlas-module-akka`,
     `atlas-module-webapi`,
     `atlas-poller`,
@@ -66,11 +67,20 @@ lazy val `atlas-json` = project
 
 lazy val `atlas-module-akka` = project
   .configure(BuildSettings.profile)
-  .dependsOn(`atlas-akka`)
+  .dependsOn(`atlas-akka`,`atlas-akka-cluster`)
   .settings(libraryDependencies ++= Seq(
     Dependencies.guiceCore,
     Dependencies.guiceMulti,
-    Dependencies.iepGuice
+    Dependencies.iepGuice,
+    Dependencies.akkaActor,
+    Dependencies.akkaCluster,
+    Dependencies.akkaClusterSharding,
+    Dependencies.akkaSlf4j,
+    Dependencies.iepService,
+    Dependencies.spectatorSandbox,
+    Dependencies.sprayCan,
+    Dependencies.sprayRouting,
+    Dependencies.typesafeConfig
   ))
 
 lazy val `atlas-module-webapi` = project
@@ -79,6 +89,21 @@ lazy val `atlas-module-webapi` = project
   .settings(libraryDependencies ++= Seq(
     Dependencies.guiceCore,
     Dependencies.iepGuice
+  ))
+
+lazy val `atlas-akka-cluster` = project
+  .configure(BuildSettings.profile)
+  .dependsOn(`atlas-webapi`)
+  .settings(libraryDependencies ++= Seq(
+    Dependencies.akkaActor,
+    Dependencies.akkaCluster,
+    Dependencies.akkaClusterSharding,
+    Dependencies.akkaSlf4j,
+    Dependencies.iepService,
+    Dependencies.spectatorSandbox,
+    Dependencies.sprayCan,
+    Dependencies.sprayRouting,
+    Dependencies.typesafeConfig
   ))
 
 lazy val `atlas-poller` = project
@@ -100,7 +125,9 @@ lazy val `atlas-standalone` = project
     Dependencies.log4jApi,
     Dependencies.log4jCore,
     Dependencies.log4jSlf4j,
-    Dependencies.spectatorLog4j
+    Dependencies.spectatorLog4j,
+    Dependencies.akkaCluster,
+    Dependencies.akkaClusterSharding
   ))
 
 lazy val `atlas-test` = project

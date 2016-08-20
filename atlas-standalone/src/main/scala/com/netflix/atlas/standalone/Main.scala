@@ -24,6 +24,7 @@ import com.google.inject.multibindings.Multibinder
 import com.google.inject.multibindings.OptionalBinder
 import com.google.inject.util.Modules
 import com.netflix.atlas.akka.ActorService
+import com.netflix.atlas.akkacluster.ActorClusterService
 import com.netflix.atlas.akka.WebServer
 import com.netflix.atlas.config.ConfigManager
 import com.netflix.atlas.core.db.Database

@@ -24,6 +24,7 @@ import com.google.inject.multibindings.Multibinder
 import com.netflix.iep.guice.LifecycleModule
 import com.netflix.iep.service.Service
 import com.typesafe.config.Config
+import com.netflix.atlas.akkacluster.ActorClusterService
 
 /**
   * Configures the actor system and web server. This module expects that bindings
@@ -33,7 +34,8 @@ class AkkaModule extends AbstractModule {
   override def configure(): Unit = {
     install(new LifecycleModule)
     val serviceBinder = Multibinder.newSetBinder(binder, classOf[Service])
-    serviceBinder.addBinding().to(classOf[ActorService])
+    serviceBinder.addBinding().to(classOf[ActorClusterService])
+    // serviceBinder.addBinding().to(classOf[ActorService])
     serviceBinder.addBinding().to(classOf[WebServer])
   }
 

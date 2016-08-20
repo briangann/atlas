@@ -13,7 +13,7 @@
 url="http://localhost:7101/api/v1/publish"
 
 # How often to send data, typically a little bit more frequent than the step
-frequency=8
+frequency=2
 
 # Use hostname to for tag
 node=$(hostname)

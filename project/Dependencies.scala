@@ -19,6 +19,8 @@ object Dependencies {
   import Versions._
 
   val akkaActor       = "com.typesafe.akka" %% "akka-actor" % akka
+  val akkaCluster       = "com.typesafe.akka" %% "akka-cluster" % akka
+  val akkaClusterSharding       = "com.typesafe.akka" %% "akka-cluster-sharding" % akka
   val akkaSlf4j       = "com.typesafe.akka" %% "akka-slf4j" % akka
   val akkaTestkit     = "com.typesafe.akka" %% "akka-testkit" % akka
   val awsCloudWatch   = "com.amazonaws" % "aws-java-sdk-cloudwatch" % aws
