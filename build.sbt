@@ -141,6 +141,8 @@ lazy val `atlas-webapi` = project
   .configure(BuildSettings.profile)
   .dependsOn(`atlas-akka`, `atlas-chart`, `atlas-core`, `atlas-json`, `atlas-test` % "test")
   .settings(libraryDependencies ++= Seq(
+    Dependencies.akkaCluster,
+    Dependencies.akkaClusterSharding,
     Dependencies.spectatorSandbox,
     Dependencies.akkaTestkit % "test",
     Dependencies.sprayTestkit % "test"
@@ -152,3 +154,6 @@ lazy val `atlas-wiki` = project
   .settings(libraryDependencies ++= Seq(
     Dependencies.scalaCompiler
   ))
+
+
+fork in run := true
