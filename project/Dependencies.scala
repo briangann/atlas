@@ -21,6 +21,9 @@ object Dependencies {
   val akkaActor       = "com.typesafe.akka" %% "akka-actor" % akka
   val akkaCluster     = "com.typesafe.akka" %% "akka-cluster" % akka
   val akkaClusterSharding  = "com.typesafe.akka" %% "akka-cluster-sharding" % akka
+  val akkaPersistence = "com.typesafe.akka" %% "akka-persistence" % akka
+  val levelDB         = "org.iq80.leveldb" % "leveldb" % "0.7"
+  val levelDBJNI      = "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
   val akkaSlf4j       = "com.typesafe.akka" %% "akka-slf4j" % akka
   val akkaTestkit     = "com.typesafe.akka" %% "akka-testkit" % akka
   val awsCloudWatch   = "com.amazonaws" % "aws-java-sdk-cloudwatch" % aws

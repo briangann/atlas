@@ -23,6 +23,7 @@ lazy val `atlas-akka` = project
   .dependsOn(`atlas-json`)
   .settings(libraryDependencies ++= Seq(
     Dependencies.akkaActor,
+    Dependencies.akkaPersistence,
     Dependencies.akkaSlf4j,
     Dependencies.iepService,
     Dependencies.spectatorSandbox,
@@ -75,6 +76,8 @@ lazy val `atlas-module-akka` = project
     Dependencies.akkaActor,
     Dependencies.akkaCluster,
     Dependencies.akkaClusterSharding,
+    Dependencies.levelDB,
+    Dependencies.levelDBJNI,
     Dependencies.akkaSlf4j,
     Dependencies.iepService,
     Dependencies.spectatorSandbox,
@@ -98,6 +101,8 @@ lazy val `atlas-akka-cluster` = project
     Dependencies.akkaActor,
     Dependencies.akkaCluster,
     Dependencies.akkaClusterSharding,
+    Dependencies.levelDB,
+    Dependencies.levelDBJNI,
     Dependencies.akkaSlf4j,
     Dependencies.iepService,
     Dependencies.spectatorSandbox,
@@ -127,7 +132,9 @@ lazy val `atlas-standalone` = project
     Dependencies.log4jSlf4j,
     Dependencies.spectatorLog4j,
     Dependencies.akkaCluster,
-    Dependencies.akkaClusterSharding
+    Dependencies.akkaClusterSharding,
+    Dependencies.levelDB,
+    Dependencies.levelDBJNI
   ))
 
 lazy val `atlas-test` = project
@@ -143,6 +150,8 @@ lazy val `atlas-webapi` = project
   .settings(libraryDependencies ++= Seq(
     Dependencies.akkaCluster,
     Dependencies.akkaClusterSharding,
+    Dependencies.levelDB,
+    Dependencies.levelDBJNI,
     Dependencies.spectatorSandbox,
     Dependencies.akkaTestkit % "test",
     Dependencies.sprayTestkit % "test"

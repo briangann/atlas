@@ -30,6 +30,7 @@ import com.typesafe.config.Config
 import com.typesafe.scalalogging.StrictLogging
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
+import com.netflix.atlas.akka.ClusterMailbox;
 
 import com.netflix.atlas.webapi
 /**
@@ -46,27 +47,10 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
     config.getConfigList("atlas.akka.atlascluster").asScala.foreach { cfg =>
       val name = cfg.getString("name")
       val cls = Class.forName(cfg.getString("class"))
-      // val myActor = newActor(name, cls)
-      // use the name of the cluster 
-      //def extractShardId: ExtractShardId = {case _ => name}      
-      
-      //def extractEntityId: ExtractEntityId = {case msg => (name, msg)}
-      //val extractEntityId: ExtractEntityId = s"ENTITY_${name}_${cls.getName}"
-      
-      //val idExtractor: ExtractEntityId = {
-      //  case cmd: Command => (cmd.postId, cmd)
-     // }
-      // publish and database are explicitly sharded as they appear in the config file
-      // shard/cluster these two actors:
-      // LocalDatabaseActor
-      // LocalPublishActor
-      
-      //val extractEntityId: ExtractEntityId
-      //val extractShardId: ExtractShardId
-      //var clusterExtractShardId: akka.cluster.sharding.ShardRegion.ExtractShardId = null
       var clusterExtractEntityId: akka.cluster.sharding.ShardRegion.ExtractEntityId = null
-      
-      val numberOfShards = 2
+ 
+      // for now, no shards, we just want a duplicate
+      val numberOfShards = 1
       var shardid = (math.abs(name.hashCode) % numberOfShards).toString
       var clusterExtractShardId: akka.cluster.sharding.ShardRegion.ExtractShardId = {
         _ => (math.abs(name.hashCode) % numberOfShards).toString
@@ -76,15 +60,15 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
       
       var knownActor: Boolean = true
       cls.getName match {
-        case "com.netflix.atlas.webapi.LocalPublishActor" => 
-          //clusterExtractShardId = com.netflix.atlas.webapi.LocalPublishActor.extractShardId
-          clusterExtractEntityId = com.netflix.atlas.webapi.LocalPublishActor.extractEntityId
-        case "com.netflix.atlas.webapi.LocalDatabaseActor" => 
-          //clusterExtractShardId = com.netflix.atlas.webapi.LocalDatabaseActor.extractShardId
-          clusterExtractEntityId = com.netflix.atlas.webapi.LocalDatabaseActor.extractEntityId
+        case "com.netflix.atlas.webapi.ClusteredPublishActor" => 
+          clusterExtractEntityId = com.netflix.atlas.webapi.ClusteredPublishActor.extractEntityId
+        case "com.netflix.atlas.webapi.ClusteredDatabaseActor" => 
+          clusterExtractEntityId = com.netflix.atlas.webapi.ClusteredDatabaseActor.extractEntityId
         case _ => knownActor = false
       }
-      if (knownActor) { 
+      if (knownActor) {
+        // val persistentActor = system.actorOf(Props[ExamplePersistentActor], "persistentActor-4-scala")
+//          entityProps = Props(classFactory.newInstance[Actor](cls)),
         ClusterSharding(system).start(
           typeName = name,
           entityProps = Props(classFactory.newInstance[Actor](cls)),
@@ -94,8 +78,11 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
         )
 
         val decider = ClusterSharding(system).shardRegion(name)      
-        logger.info(s"\n\n*******************Created Actor in the new Cluster Actor*******************")       
-        val ref = system.actorOf(newActor(name, cls), name)
+        logger.info(s"\n\n*******************Created Actor in the new Cluster Actor*******************")      
+        val ref = system.actorOf(
+            Props(classFactory.newInstance[Actor](cls)).withMailbox("cluster-mailbox"), name)
+          
+        //val ref = system.actorOf(newActor(name, cls), name)
         logger.info(cls.toString())
         logger.info(s"created actor '${ref.path}' using class '${cls.getName}'\n\n")
       }

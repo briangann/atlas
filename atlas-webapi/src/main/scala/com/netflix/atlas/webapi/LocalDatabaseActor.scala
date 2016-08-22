@@ -19,25 +19,6 @@ import akka.actor.Actor
 import akka.actor.ActorLogging
 import com.netflix.atlas.core.db.Database
 
-import akka.cluster.sharding.ShardRegion
-import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
-
-object LocalDatabaseActor{
-  import com.netflix.atlas.webapi.PublishApi._
-
-  def name = "LocalDatabaseActor"
-
-  def extractShardId: ExtractShardId = {
-    case PublishRequest(_, _) =>
-      this.toString
-  }
-
-  def extractEntityId: ExtractEntityId = {
-    case msg @ PublishRequest(_, _) =>
-      (this.toString, msg)
-  }
-}
-
 
 class LocalDatabaseActor(db: Database) extends Actor with ActorLogging {
 
