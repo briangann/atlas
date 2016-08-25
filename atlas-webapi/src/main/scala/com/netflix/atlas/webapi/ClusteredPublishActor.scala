@@ -45,25 +45,32 @@ import com.netflix.atlas.json.Json
 import scala.concurrent.duration.Duration;
 import java.util.concurrent.TimeUnit;
 
-// for clustered nodes, we use pub-sub
-import akka.cluster.pubsub.DistributedPubSub
-import akka.cluster.pubsub.DistributedPubSubMediator.{Publish, Subscribe}
-
 
 object ClusteredPublishActor{
   import com.netflix.atlas.webapi.PublishApi._
 
-  def name = "ClusteredPublishActor"
+  def shardName = "ClusteredPublishActor"
+  val numberOfShards = 2
+  
+  case class IngestMe(req: PublishRequest,  actorRef: ActorRef)
+  case class Hello(something: String)
+  val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
+    case Hello(something: String) =>
+      println("************** HELLO extract shardid with publishme *********")
+      (math.abs(something.hashCode) % numberOfShards).toString
+    case IngestMe(req: PublishRequest, actorRef: ActorRef) =>
+      println("************** PUBLISH IngestMe extract shardid *********")
+      var x = (math.abs(req.hashCode) % numberOfShards).toString
+      println("************** PUBLISH IngestMe extract shardid = " + x)
+      (math.abs(req.hashCode) % numberOfShards).toString
+    case req: PublishRequest => (math.abs(req.hashCode) % numberOfShards).toString
+  }
+  
 
-  def extractShardId: ExtractShardId = {
-    case PublishRequest(_, _) =>
-      this.toString
+  val extractEntityId: ExtractEntityId = {
+    case d: IngestMe =>  (shardName, d)
   }
 
-  def extractEntityId: ExtractEntityId = {
-    case msg @ PublishRequest(_, _) =>
-      (this.toString, msg)
-  }
   case class Publish(msg: String)
   case class Message(from: String, text: String)
 }
@@ -80,14 +87,18 @@ case class ClusterPublishState(events: List[String] = Nil) {
 
 
 class ClusteredPublishActor(registry: Registry, db: Database) extends PersistentActor with ActorLogging {
-
+  import ShardRegion.Passivate
   import com.netflix.atlas.webapi.PublishApi._
+  import ClusteredPublishActor._
  
   import scala.concurrent.duration._
   // TODO: This actor is only intended to work with MemoryDatabase, but the binding is
   // setup for the Database interface.
   private val memDb = db.asInstanceOf[MemoryDatabase]
 
+  // passivate the entity when no activity
+  //context.setReceiveTimeout(2.minutes)
+  
   // Track the ages of data flowing into the system. Data is expected to arrive quickly and
   // should hit the backend within the step interval used.
   private val numReceived = {
@@ -100,7 +111,8 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
   private val cache = new NormalizationCache(DefaultSettings.stepSize, memDb.update)
 
-  override def persistenceId = "clustered-publish-actor-1"
+  override def persistenceId = self.path.parent.name + "-" + self.path.name
+
  
   var state = ClusterPublishState()
  
@@ -110,10 +122,6 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   var lastSnapshotSize: Int = 0
   var futureSnapshotSize: Int = 0
 
-  val mediator = DistributedPubSub(context.system).mediator
-  // this should be a config item... and work per cluster
-  val topic = "publish"
-  mediator ! Subscribe(topic, self)
   def updateState(event: ClusterPublishEvt): Unit =
     state = state.updated(event)
  
@@ -152,8 +160,24 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       lastSnapshotSize = state.size
 
   }
+  
+
  
   val receiveCommand: Receive = {
+    case Hello(whatever: String) =>
+      println("hello back")
+      sender() ! HttpResponse(StatusCodes.OK)
+    case IngestMe(req,actorRef) =>
+      println("IngestMe receiveCommand doing update")
+      println("Sender is " + sender.toString())
+      println("ActorRef is " + actorRef.toString())
+      update(req.values)
+      //persist(ClusterPublishEvt(Json.encode(req.values))) { event =>
+      //  updateState(event)
+      //  context.system.eventStream.publish(event)
+      //}
+      println("IngestMe sending back OK")
+      actorRef ! HttpResponse(StatusCodes.OK)
     case "snap"  =>
       println("Command is to take a snapshot...")
       // check if there are more values than we had before
@@ -190,32 +214,20 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       updateStats(failures)
       val msg = FailureMessage.error(failures)
       sendError(sender(), StatusCodes.BadRequest, msg)
+    
     case PublishRequest(values, Nil) =>
-      println("publish doing update")
+      println("UGH publish doing update")
       update(values)
-      persist(ClusterPublishEvt(Json.encode(values))) { event =>
-        updateState(event)
-        context.system.eventStream.publish(event)
-      }
-      // tell all of our peers about this new metric
-      mediator ! Publish(topic,ClusteredPublishActor.Message(self.path.name, Json.encode(values)))
+      //persist(ClusterPublishEvt(Json.encode(values))) { event =>
+      //  updateState(event)
+      //  context.system.eventStream.publish(event)
+      //}
       sender() ! HttpResponse(StatusCodes.OK)
     case PublishRequest(values, failures) =>
       update(values)
       updateStats(failures)
       val msg = FailureMessage.partial(failures)
       sendError(sender(), StatusCodes.Accepted, msg)
-    case ClusteredPublishActor.Message(from, text) =>
-      if (sender == self) {
-        println(s"I sent this message, ignoring")
-      }
-      else {
-        println(s"another publisher sent me a message")
-        var myDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](text)
-        // TODO: validate maybe?
-        update(myDatapoints)
-        println(s"ingested")
-      }
   }
   
   private def sendError(ref: ActorRef, status: StatusCode, msg: FailureMessage): Unit = {
@@ -245,6 +257,6 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   }
   
   // we are going to snapshot every 30 seconds...
-  context.system.scheduler.schedule(60.seconds, 30.seconds, self, "snap")(context.system.dispatcher, self)
+  //context.system.scheduler.schedule(60.seconds, 30.seconds, self, "snap")(context.system.dispatcher, self)
 }
 

@@ -16,6 +16,7 @@
 package com.netflix.atlas.webapi
 
 import akka.actor.ActorRefFactory
+import akka.actor.ActorSystem
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.core.JsonParser
 import com.netflix.atlas.akka.DiagnosticMessage
@@ -32,11 +33,22 @@ import com.netflix.atlas.json.Json
 import com.netflix.atlas.json.JsonSupport
 import spray.routing.RequestContext
 
-class PublishApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
+// for clustered nodes, we use pub-sub
+//import akka.cluster.pubsub.DistributedPubSub
+//import akka.cluster.pubsub.DistributedPubSubMediator.{Publish, Subscribe}
+
+
+import com.netflix.atlas.core.model._
+
+import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
+
+class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val system: ActorSystem) extends WebApi {
 
   import com.netflix.atlas.webapi.PublishApi._
 
-  private val publishRef = actorRefFactory.actorSelection("/user/publish")
+  //private val publishRef = actorRefFactory.actorSelection("/user/publish")
+  val publishRef = ClusterSharding(system).shardRegion(ClusteredPublishActor.shardName)
 
   private val config = ConfigManager.current.getConfig("atlas.webapi.publish")
 
@@ -62,7 +74,10 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
         case Some(parser) =>
           val data = decodeBatch(parser, internWhileParsing)
           val req = validate(data)
-          publishRef.tell(req, ctx.responder)
+          println(s"publishapi sending request to " + publishRef.toString())
+          //publishRef ! ClusteredPublishActor.Hello("world")
+          publishRef ! ClusteredPublishActor.IngestMe(req, ctx.responder)
+          //publishRef.tell(req, ctx.responder)
         case None =>
           throw new IllegalArgumentException("empty request body")
       }

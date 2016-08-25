@@ -24,6 +24,8 @@ object Dependencies {
   val akkaPersistence = "com.typesafe.akka" %% "akka-persistence" % akka
   val levelDB         = "org.iq80.leveldb" % "leveldb" % "0.7"
   val levelDBJNI      = "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
+  val chill           = "com.twitter" % "chill_2.11" % "0.8.0"
+  val chillAkka       = "com.twitter" % "chill-akka_2.11" % "0.8.0"
   val akkaSlf4j       = "com.typesafe.akka" %% "akka-slf4j" % akka
   val akkaTestkit     = "com.typesafe.akka" %% "akka-testkit" % akka
   val awsCloudWatch   = "com.amazonaws" % "aws-java-sdk-cloudwatch" % aws

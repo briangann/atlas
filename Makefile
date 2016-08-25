@@ -14,7 +14,11 @@ build:
 	$(SBT) clean test checkLicenseHeaders
 
 haste:
+	$(SBT) package
+
+waste:
 	$(SBT) clean package
+
 
 snapshot:
 	# Travis uses a depth when fetching git data so the tags needed for versioning may not

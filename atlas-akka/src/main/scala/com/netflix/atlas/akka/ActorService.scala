@@ -30,6 +30,7 @@ import com.typesafe.scalalogging.StrictLogging
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 
+
 /**
   * Exposes actor system as service for healthcheck and proper shutdown. Additional
   * actors to start up can be specified using the `atlas.akka.actors` property.

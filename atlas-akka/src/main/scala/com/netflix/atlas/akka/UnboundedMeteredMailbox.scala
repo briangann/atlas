@@ -44,6 +44,7 @@ object UnboundedMeteredMailbox {
     private val waitTimer = registry.timer("akka.queue.wait", "path", path)
     registry.collectionSize(registry.createId("akka.queue.size", "path", path), queue)
 
+    
     def enqueue(receiver: ActorRef, handle: Envelope): Unit = {
       insertCounter.increment()
       queue.offer(Entry(handle))

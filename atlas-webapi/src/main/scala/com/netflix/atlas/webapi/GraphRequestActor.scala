@@ -21,6 +21,7 @@ import java.time.Duration
 
 import akka.actor.Actor
 import akka.actor.ActorLogging
+import akka.actor.ActorSystem
 import akka.actor.ActorRef
 import com.netflix.atlas.akka.DiagnosticMessage
 import com.netflix.atlas.chart._
@@ -33,15 +34,17 @@ import com.netflix.spectator.api.Registry
 import spray.can.Http
 import spray.http.MediaTypes._
 import spray.http._
+import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
 
-
-class GraphRequestActor(registry: Registry) extends Actor with ActorLogging {
+class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor with ActorLogging {
 
   import com.netflix.atlas.webapi.GraphApi._
 
   private val errorId = registry.createId("atlas.graph.errorImages")
 
-  private val dbRef = context.actorSelection("/user/db")
+  //private val dbRef = context.actorSelection("/user/db")
+  val dbRef = ClusterSharding(context.system).shardRegion(ClusteredDatabaseActor.shardName)
 
   private var request: Request = _
   private var responseRef: ActorRef = _
@@ -60,8 +63,12 @@ class GraphRequestActor(registry: Registry) extends Actor with ActorLogging {
   def innerReceive: Receive = {
     case req: Request =>
       request = req
+      println("inner receive")
       responseRef = sender()
-      dbRef.tell(req.toDbRequest, self)
+      //dbRef ! ClusteredDatabaseActor.GetData(req.toDbRequest, self)
+      dbRef ! ClusteredDatabaseActor.GetData(req, self)
+      
+      //dbRef.tell(req.toDbRequest, self)
     case DataResponse(data) =>
       sendImage(data)
     case ev: Http.ConnectionClosed =>

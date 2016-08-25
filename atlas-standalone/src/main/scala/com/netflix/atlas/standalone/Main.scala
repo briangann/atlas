@@ -38,6 +38,9 @@ import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.StrictLogging
 
+// chill
+//import com.twitter.chill
+
 /**
  * Provides a simple way to start up a standalone server. Usage:
  *

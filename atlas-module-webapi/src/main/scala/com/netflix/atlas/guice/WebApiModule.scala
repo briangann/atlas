@@ -20,6 +20,7 @@ import com.netflix.atlas.core.db.Database
 import com.netflix.atlas.webapi.DatabaseProvider
 import com.netflix.iep.guice.LifecycleModule
 
+
 /**
   * Configures the database needed for the webapi.
   */
