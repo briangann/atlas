@@ -42,6 +42,16 @@ import com.netflix.atlas.core.model._
 
 import akka.cluster.sharding.ShardRegion
 import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
+import scala.concurrent.Await
+import akka.pattern.ask
+import akka.util.Timeout
+import scala.concurrent.duration._
+
+import spray.http.HttpEntity
+import spray.http.HttpResponse
+import spray.http.MediaTypes
+import spray.http.StatusCode
+import spray.http.StatusCodes
 
 class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val system: ActorSystem) extends WebApi {
 
@@ -72,12 +82,26 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
     try {
       getJsonParser(ctx.request) match {
         case Some(parser) =>
+          // TODO see side effect of internwhileparsing
           val data = decodeBatch(parser, internWhileParsing)
-          val req = validate(data)
-          println(s"publishapi sending request to " + publishRef.toString())
-          //publishRef ! ClusteredPublishActor.Hello("world")
-          publishRef ! ClusteredPublishActor.IngestMe(req, ctx.responder)
-          //publishRef.tell(req, ctx.responder)
+          // build a new req for each datapoint so we can have the taggeditem ride along
+          // that is unique to the ingestion
+          //
+          // This uses a "future" to ingest everything and get the response
+          data.foreach { x =>
+            var ti = TaggedItem.computeId(x.tags)
+            var id = x.idString
+            println("ti is " + ti + " id is " + id)
+            var newList: List[Datapoint] = List(x)
+            val aReq = validate(newList)
+            println(s"publishapi sending request to " + publishRef.toString())
+            val future = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds)
+            println("waiting....")
+            val result = Await.result(future, 5.seconds).asInstanceOf[String]
+            println("handleReq future response is " + result)
+          }
+          println("Sending response...")
+          ctx.responder ! HttpResponse(StatusCodes.OK)
         case None =>
           throw new IllegalArgumentException("empty request body")
       }

@@ -36,14 +36,18 @@ import spray.http.MediaTypes._
 import spray.http._
 import akka.cluster.sharding.ShardRegion
 import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
+import scala.concurrent.Await
+import akka.pattern.ask
+import akka.util.Timeout
+import scala.concurrent.duration._
 
 class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor with ActorLogging {
 
   import com.netflix.atlas.webapi.GraphApi._
+import com.netflix.atlas.core.index.TagQuery
 
   private val errorId = registry.createId("atlas.graph.errorImages")
 
-  //private val dbRef = context.actorSelection("/user/db")
   val dbRef = ClusterSharding(context.system).shardRegion(ClusteredDatabaseActor.shardName)
 
   private var request: Request = _
@@ -60,16 +64,122 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
     }
   }
 
+  /*
+   * old crap
+    case req: Request =>
+      request = req
+      responseRef = sender()
+      // Need to pull out all of the tags that the query will use
+      val dataExprs = req.exprs.flatMap(_.expr.dataExprs)
+      val deduped = dataExprs.toSet.toList
+      // println("deduped is " + deduped)
+      var result: List[DataResponse] = List()
+      println("There are " + deduped.size + " data expressions to process")
+      deduped.foreach { x =>
+        val pairs = Query.tags(x.query)
+        // println("pairs is " + pairs)
+        var ti = TaggedItem.computeId(pairs)
+        // TODO: make this a comprehension-style future
+        // this is slow, need to do these in parallel, plus handle exceptions
+        // See http://doc.akka.io/docs/akka/snapshot/scala/futures.html#futures-scala
+        println("Sending db req " + req.toDbRequest.toString())
+        // TODO: GetShardData may not require the "self" parameter since it uses sender()
+        val future = dbRef.ask(ClusteredDatabaseActor.GetShardData(ti, req.toDbRequest, self))(5.seconds)
+        println("waiting....")
+        // TODO: Handle exceptions
+        var aresult: DataResponse = Await.result(future, 5.seconds).asInstanceOf[DataResponse]
+        println("got something...")
+        println("handleReq future response is " + aresult)
+        // push into our list
+        result = aresult :: result
+      }
+      //println("result as list is " + result)
+      // now merge the results
+      //println("All done, merging results")
+      //println("Merging...")
+      var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
+      result.foreach { aDataResponse =>
+        aDataResponse.ts.foreach{ item =>
+          // check the size of the List in the Map
+          var v = item._2
+          // println("v is " + v)
+          if (v.size > 0) {
+            // println("this key/value was NOT empty, adding it")
+            mergedData = mergedData ++ aDataResponse.ts
+          }
+        }
+      }
+      // println("mergedData is " + mergedData)
+      //responseRef = sender()
+      sendImage(mergedData.toMap)
+  
+  
+   */
   def innerReceive: Receive = {
     case req: Request =>
       request = req
-      println("inner receive")
       responseRef = sender()
-      //dbRef ! ClusteredDatabaseActor.GetData(req.toDbRequest, self)
-      dbRef ! ClusteredDatabaseActor.GetData(req, self)
-      
-      //dbRef.tell(req.toDbRequest, self)
+      println("GetShardedData: request is " + req)
+      // ask all shards
+      var results: List[DataResponse] = List()
+      var dbRequest = req.toDbRequest
+      println("GetShardedData: dbrequest is " + dbRequest)
+      var shardId: Int = 0
+      for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+        println("Sharded GetShardedData Request: Asking shard# " + shardId)
+        val future = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(5.seconds)
+        println("Sharded GetShardedData Request: waiting....")
+        // TODO: Handle exceptions
+        var aresult: DataResponse = Await.result(future, 5.seconds).asInstanceOf[DataResponse]
+        println("Sharded GetShardedData Request: future response is " + aresult)
+        results = aresult :: results
+      }
+      println("result as list is " + results)
+      // now merge the results
+      println("All done, merging results")
+      println("Merging...")
+      var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
+      results.foreach { aDataResponse =>
+        aDataResponse.ts.foreach{ item =>
+          // check the size of the List in the Map
+          var k = item._1
+          var v = item._2
+          println("v is " + v)
+          
+          if (v.size > 0) {
+            println("this key/value was NOT empty")
+            // need to purge anything with NO_DATA inside
+            var validData = List[TimeSeries]()
+            v.foreach { ts =>
+              if (ts.label.equals("NO DATA")) {
+                // no data detected, not valid
+                println("NO_DATA detected, skipping this result")
+              }
+              else {
+                // append
+                println("Appending valid data")
+                validData = ts:: validData
+              }
+            }
+            if (validData.size > 0) {
+              // reduce to distinct values
+              validData = validData.distinct
+              println("Valid Data is " + validData)
+              var newMap = Map[DataExpr,List[TimeSeries]](k ->validData)
+              println("*****newMap is " + newMap)
+              println("******mergedData was " + mergedData)
+              mergedData = mergedData ++ newMap
+              println("******mergedData is now " + mergedData)
+            }
+          }
+        }
+      }
+      println("mergedData is " + mergedData)
+
+      sendImage(mergedData.toMap)
     case DataResponse(data) =>
+      println("Got DataResponse...")
+      println("Data is " + data)
       sendImage(data)
     case ev: Http.ConnectionClosed =>
       log.info("connection closed")
@@ -85,7 +195,6 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
   }
 
   private def sendImage(data: Map[DataExpr, List[TimeSeries]]): Unit = {
-
     val warnings = List.newBuilder[String]
 
     val plotExprs = request.exprs.groupBy(_.axis.getOrElse(0))

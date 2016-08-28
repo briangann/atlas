@@ -17,6 +17,9 @@ package com.netflix.atlas.webapi
 
 import akka.actor.Actor
 import akka.actor.ActorRef
+import akka.actor.ActorSystem
+
+import akka.cluster
 
 import akka.persistence._
 import akka.actor.ActorLogging
@@ -32,32 +35,47 @@ import com.netflix.atlas.webapi.GraphApi._
 import com.netflix.atlas.webapi.TagsApi._
 
 
+import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
+
+import java.math.BigInteger
+
 object ClusteredDatabaseActor{
   import com.netflix.atlas.webapi.PublishApi._
 
   def shardName = "ClusteredDatabaseActor"
 
   val numberOfShards = 2
- 
-  //case class GetData(req: DataRequest, actorRef: ActorRef)
-  case class GetData(req: com.netflix.atlas.webapi.GraphApi.Request, actorRef: ActorRef)
-  
+  val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
+  case class GetShardData(taggedItemId: BigInteger, req: DataRequest, actorRef: ActorRef)
+  case class GetShardedData(shardId: Int, req: DataRequest)
+  case class GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
+  case class GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
+  case class GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
-    case GetData(req, actorRef: ActorRef) =>
-      println("************** extract shardid with GetData *********")
-      (math.abs(req.hashCode) % numberOfShards).toString
-    case req: DataRequest =>
-      println("************** extract shardid with req datarequest *********")
-      (math.abs(req.hashCode) % numberOfShards).toString
+    case GetShardData(taggedItemId: BigInteger, req: DataRequest, actorRef: ActorRef) =>
+      println("************** GetShardData extract shardid *********")
+      println("************** GetShardData extract shardid = " + taggedItemId.abs().mod(bignumberOfShards))
+      taggedItemId.abs().mod(bignumberOfShards).toString()
+    case GetShardedData(shardId: Int, req: DataRequest) =>
+      println("************** GetShardedData explicit shardid = " + shardId)
+      BigInteger.valueOf(shardId).toString()     
+    case GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
+      println("************** GetShardedTags explicit shardid = " + shardId)
+      BigInteger.valueOf(shardId).toString()     
+    case GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
+      println("************** GetShardedTagValues explicit shardid = " + shardId)
+      BigInteger.valueOf(shardId).toString()     
+    case GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
+      println("************** GetShardedTagKeys explicit shardid = " + shardId)
+      BigInteger.valueOf(shardId).toString()      
   }
   val extractEntityId: ShardRegion.ExtractEntityId = {
-    case d: GetData =>  (shardName, d)
+    case d: GetShardData =>  (d.taggedItemId.toString(), d)
+    case d: GetShardedData =>  (d.shardId.toString(), d)
+    case d: GetShardedTags =>  (d.shardId.toString(), d)
+    case d: GetShardedTagKeys =>  (d.shardId.toString(), d)
+    case d: GetShardedTagValues =>  (d.shardId.toString(), d)
   }
-      
-  case class Publish(msg: String, req: com.netflix.atlas.webapi.GraphApi.DataRequest)
-  // the DataResponse is not directly serializable, so just json encode it...
-  case class Message(msg: String, req: com.netflix.atlas.webapi.GraphApi.DataRequest, response: String)
-
 }
 
 case object ShutdownClusteredDatabase
@@ -71,18 +89,19 @@ case class ClusterDatabaseState(events: List[String] = Nil) {
   override def toString: String = events.reverse.toString
 }
 
-//class GetData(req: DataRequest, actorRef: ActorRef)
 
-class ClusteredDatabaseActor(db: Database) extends PersistentActor with ActorLogging {
+class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) extends PersistentActor with ActorLogging {
   import ClusteredDatabaseActor._
+  import akka.cluster._
+  import akka.cluster.ClusterEvent._
   import ShardRegion.Passivate
   import com.netflix.atlas.webapi.GraphApi._
   import com.netflix.atlas.webapi.TagsApi._
   import scala.concurrent.duration._
 
   override def persistenceId = self.path.parent.name + "-" + self.path.name
-  // passivate the entity when no activity
-  //context.setReceiveTimeout(2.minutes)
+  // passivate the entity when there is no activity
+  context.setReceiveTimeout(2.minutes)
  
   var state = ClusterDatabaseState()
  
@@ -92,24 +111,10 @@ class ClusteredDatabaseActor(db: Database) extends PersistentActor with ActorLog
   def numEvents =
     state.size
     
-  // the sender is stored here, and will be used once the data has been aggregated
-  // from all peers
-  var senderRef: ActorRef = _
-  var mergedMap: Map[DataExpr, List[TimeSeries]] = null
-  //var mergedMap: DataResponse = null
-  var peerCount = 1
-  var peerResponses = 0
-  var partitionEnabled: Boolean = true
- 
   val receiveRecover: Receive = {
     case evt: ClusterDatabaseEvt                          => updateState(evt)
     case SnapshotOffer(_, snapshot: ClusterDatabaseState) => state = snapshot
   }
- 
-  //def receiveCommand = {
-  //   case GetData(req) => sender() ! executeDataRequest(req)
-  //}
-  
   
   val receiveCommand: Receive = {
     case ClusterDatabaseCmd(data) =>
@@ -126,92 +131,32 @@ class ClusteredDatabaseActor(db: Database) extends PersistentActor with ActorLog
       sender() ! TagListResponse(db.index.findTags(tq))
     case ListKeysRequest(tq)    => sender() ! KeyListResponse(db.index.findKeys(tq).map(_.name))
     case ListValuesRequest(tq)  => sender() ! ValueListResponse(db.index.findValues(tq))
-    case GetData(req,actorRef) => 
-      println("CDA - GetData called")
-      actorRef ! executeDataRequest(req.toDbRequest)
-    case req: DataRequest => 
-      println("CDA - req: DataRequest called")
-      sender() ! executeDataRequest(req)
-    /*
-    case req: DataRequest       =>
-      // received a data request from an api, need to ask all of our peers for data, then
-      // respond with the merged dataset
-      //
-      // check if we are partitioned... if not, just do the request
-      if (partitionEnabled) {
-        // store our sender
-        senderRef = sender()
-        // ask our peers for their data
-        //mediator ! Publish(topic,ClusteredDatabaseActor.Message("database-req", Json.encode(req)))
-        senderRef ! GetTimeSeries(req)
-        mediator ! Publish(topic,ClusteredDatabaseActor.Message("database-req", req, null))
-      }
-      else {
-        sender() ! executeDataRequest(req)
-      }
-      
-      */
-    
-    /*
-    case ClusteredDatabaseActor.Message(messageType, req, response) =>
-      if (messageType == "database-req") {
-        if (sender == self) {
-          println(s"I sent this message, will process my query now")
-          var myresponse = executeDataRequest(req)
-          println(s"Finished my DR, here's my ts response: " + myresponse.toString());
-          mediator ! Publish("database",ClusteredDatabaseActor.Message("database-req-response", null, meh))
-        }
-        else {
-          //println(s"another database sent me a message " + text)
-          //var req = Json.decode[DataRequest](text)
-          var myresponse = executeDataRequest(req)
-          println(s"Finished my DR, here's my response: " + myresponse.toString());
-          // DataResponse isn't directly deserializable,  break it up into two pieces that can be reassembled
-          // now publish back our response
-          mediator ! Publish("database",ClusteredDatabaseActor.Message("database-req-response", null, Json.encode(myresponse)))
-        }
-      }
-      if (messageType == "database-req-response") {
-        // decode
-        peerResponses += 1
-        println(s"database-req-response num peer responses: ${peerResponses}")
-        println(s"peer response: " + response)
-        var aTimeSeriesList = Json.decode[List[TimeSeries]](response)
-        
-        println(s"peer ts list: " + aTimeSeriesList.toString())
-        
-        // now do our datarequest (yes this is a duplicate for now)
-        var myresponse = executeDataRequest(req)
-        println("myresponse data before: " + Json.encode(myresponse.ts.values.toList))
-        // then merge the peer responses into it
-        // union and distinct will dedupe us
-        //val c = aTimeSeriesList.union(myresponse.ts.values.toList).distinct
-        val c = aTimeSeriesList.union(myresponse.ts.values.toList)
-        
-        // make a whole new data response
-        val data = req.exprs.map(expr => expr -> c).toMap
-
-                
-        println("data after: " + Json.encode(data))
-        // need all peers to respond
-        if (peerResponses == peerCount) {
-          println(s"database-req-response all peers responded")
-          // have all peer responses merged, send the result back to
-          // the original sender
-          var fullResponse: DataResponse = new DataResponse(mergedMap)
-          println("full response: " + Json.encode(mergedMap))
-          senderRef ! fullResponse
-          peerResponses = 0
-          mergedMap = null
-        }
-      }
-      
-      */
+    case GetShardData(taggedItemId: BigInteger, req: DataRequest, actorRef: ActorRef) =>
+       println("GetShardData sending back OK")
+       var resp = executeDataRequest(req)
+       println("GetShardData resp is " + resp)
+       sender() ! resp
+       //sender() ! "OK"
+    case GetShardedData(shardId: Int, req: DataRequest) =>
+       println("GetShardedData sending back OK")
+       var resp = executeDataRequest(req)
+       println("GetShardedData resp is " + resp)
+       sender() ! resp
+    case GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
+      var resp = TagListResponse(db.index.findTags(tq))
+       println("GetShardedTags resp is " + resp)
+       sender() ! resp
+    case GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
+      var resp = KeyListResponse(db.index.findKeys(tq).map(_.name))
+       println("GetShardedTags resp is " + resp)
+       sender() ! resp
+    case GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
+      var resp = ValueListResponse(db.index.findValues(tq))
+       println("GetShardedTagValues resp is " + resp)
+       sender() ! resp
   }
   
   
-  // merge all data responses together
-  // val c = a.union(b).distinct
   private def executeDataRequest(req: DataRequest): DataResponse = {
     val data = req.exprs.map(expr => expr -> db.execute(req.context, expr)).toMap
     DataResponse(data)

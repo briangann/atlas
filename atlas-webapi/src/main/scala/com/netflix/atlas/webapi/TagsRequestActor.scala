@@ -25,12 +25,20 @@ import spray.can.Http
 import spray.http.MediaTypes._
 import spray.http._
 
+// for sharding and queries
+import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
+import scala.concurrent.Await
+import akka.pattern.ask
+import akka.util.Timeout
+import scala.concurrent.duration._
 
 class TagsRequestActor extends Actor with ActorLogging {
 
   import com.netflix.atlas.webapi.TagsApi._
+  com.netflix.atlas.core.index.TagQuery
 
-  val dbRef = context.actorSelection("/user/db")
+  val dbRef = ClusterSharding(context.system).shardRegion(ClusteredDatabaseActor.shardName)
 
   var request: Request = _
   var responseRef: ActorRef = _
@@ -43,7 +51,123 @@ class TagsRequestActor extends Actor with ActorLogging {
     case req: Request =>
       request = req
       responseRef = sender()
-      dbRef.tell(req.toDbRequest, self)
+      var aDbRequest = req.toDbRequest
+      var tq: com.netflix.atlas.core.index.TagQuery = null
+      (req.key -> req.verbose) match {
+        case (Some(k),  true) => tq = req.toTagQuery(Query.HasKey(k))
+        case (Some(k), false) => tq = req.toTagQuery(Query.HasKey(k))
+        case (None,     true) => tq = req.toTagQuery(Query.True)
+        case (None,    false) => tq = req.toTagQuery(Query.True)
+      }
+      
+      aDbRequest match {
+        case x: ListTagsRequest =>
+          var z = tq.query.get
+          val pairs = Query.tags(z)
+          var ti = TaggedItem.computeId(pairs)
+          println("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
+          // ask all shards
+          var shardId: Int = 0
+          var results: List[TagListResponse] = List()
+          for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+            val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTags(shardId, tq))(5.seconds)
+            println("Sharded ListTagsRequest: waiting....")
+            // TODO: Handle exceptions
+            var aresult: TagListResponse = Await.result(future, 5.seconds).asInstanceOf[TagListResponse]
+            println("Sharded ListTagsRequest: got something...")
+            println("Sharded ListTagsRequest: handleReq future response is " + aresult)
+            results = aresult :: results
+          }
+          println("Sharded ListValuesRequest: result as list is " + results)
+          // merge results
+          var data = List[Tag]() 
+          results.foreach { aDataResponse =>
+            // the response has a list of strings, iterate those and append to drData
+            aDataResponse.vs.foreach { aValue =>
+              data = aValue :: data
+            }
+            // reduce to distinct values
+            data = data.distinct
+          }
+          
+          var mergedData = TagListResponse(data)
+          println("Sharded ListValuesRequest: merged data: " + mergedData)
+          // send the result back to ourself, so we can re-use the non-clustered case statements
+          self ! mergedData
+
+        case x: ListValuesRequest =>
+          var z = tq.query.get
+          val pairs = Query.tags(z)
+          var ti = TaggedItem.computeId(pairs)
+          println("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
+          // ask all shards
+          var shardId: Int = 0
+          var results: List[ValueListResponse] = List()
+          for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+            val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTagValues(shardId, tq))(5.seconds)
+            println("Sharded ListValuesRequest: waiting....")
+            // TODO: Handle exceptions
+            var aresult: ValueListResponse = Await.result(future, 5.seconds).asInstanceOf[ValueListResponse]
+            println("Sharded ListValuesRequest: got something...")
+            println("Sharded ListValuesRequest: handleReq future response is " + aresult)
+            results = aresult :: results
+          }
+          println("Sharded ListValuesRequest: result as list is " + results)
+          // merge results
+          var data = List[String]() 
+          results.foreach { aDataResponse =>
+            // the response has a list of strings, iterate those and append to drData
+            aDataResponse.vs.foreach { aValue =>
+              data = aValue :: data
+            }
+            // reduce to distinct values
+            data = data.distinct
+          }
+          
+          var mergedData = ValueListResponse(data)
+          println("Sharded ListValuesRequest: merged data: " + mergedData)
+          // send the result back to ourself, so we can re-use the non-clustered case statements
+          self ! mergedData
+
+        case x: ListKeysRequest =>
+          var z = tq.query.get
+          val pairs = Query.tags(z)
+          var ti = TaggedItem.computeId(pairs)
+          println("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
+          // ask all shards
+          var shardId: Int = 0
+          var results: List[KeyListResponse] = List()
+          for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+            val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTagKeys(shardId, tq))(5.seconds)
+            println("Sharded ListKeysRequest: waiting....")
+            // TODO: Handle exceptions
+            var aresult: KeyListResponse = Await.result(future, 5.seconds).asInstanceOf[KeyListResponse]
+            println("Sharded ListKeysRequest: got something...")
+            println("Sharded ListKeysRequest: handleReq future response is " + aresult)
+            results = aresult :: results
+          }
+          println("Sharded ListKeysRequest: result as list is " + results)
+          // merge results
+          var data = List[String]() 
+          results.foreach { aDataResponse =>
+            // the response has a list of strings, iterate those and append to drData
+            aDataResponse.vs.foreach { aValue =>
+              data = aValue :: data
+            }
+            // reduce to distinct values
+            data = data.distinct
+          }
+          
+          var mergedData = KeyListResponse(data)
+          println("Sharded ListKeysRequest: merged data: " + mergedData)
+          // send the result back to ourself, so we can re-use the non-clustered case statements
+          self ! mergedData
+
+        case _ => println("error Unknown class")
+      }
+  
+      
+      //dbRef.tell(req.toDbRequest, self)
     case TagListResponse(vs)   if request.useText => sendText(tagString(vs), offsetTag(vs))
     case KeyListResponse(vs)   if request.useText => sendText(vs.mkString("\n"), offsetString(vs))
     case ValueListResponse(vs) if request.useText => sendText(vs.mkString("\n"), offsetString(vs))

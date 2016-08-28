@@ -44,35 +44,28 @@ import com.netflix.atlas.json.Json
 // for auto schedule of snapshots
 import scala.concurrent.duration.Duration;
 import java.util.concurrent.TimeUnit;
-
+import java.math.BigInteger
 
 object ClusteredPublishActor{
   import com.netflix.atlas.webapi.PublishApi._
 
   def shardName = "ClusteredPublishActor"
-  val numberOfShards = 2
-  
-  case class IngestMe(req: PublishRequest,  actorRef: ActorRef)
-  case class Hello(something: String)
+  val numberOfShards: Int = 2
+  val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
+
+  case class IngestTaggedItem(taggedItemId: BigInteger, req: PublishRequest)
+
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
-    case Hello(something: String) =>
-      println("************** HELLO extract shardid with publishme *********")
-      (math.abs(something.hashCode) % numberOfShards).toString
-    case IngestMe(req: PublishRequest, actorRef: ActorRef) =>
-      println("************** PUBLISH IngestMe extract shardid *********")
-      var x = (math.abs(req.hashCode) % numberOfShards).toString
-      println("************** PUBLISH IngestMe extract shardid = " + x)
-      (math.abs(req.hashCode) % numberOfShards).toString
-    case req: PublishRequest => (math.abs(req.hashCode) % numberOfShards).toString
+    case IngestTaggedItem(taggedItemId: BigInteger, req: PublishRequest) =>
+      println("************** IngestTaggedItem IngestTaggedItem extract shardid *********")
+      var shardId = taggedItemId.abs().mod(bignumberOfShards)
+      println("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
+      shardId.toString
   }
   
-
   val extractEntityId: ExtractEntityId = {
-    case d: IngestMe =>  (shardName, d)
+    case d: IngestTaggedItem =>  (d.taggedItemId.toString(), d)
   }
-
-  case class Publish(msg: String)
-  case class Message(from: String, text: String)
 }
 
 case object ShutdownClusteredPublisher
@@ -164,20 +157,41 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
  
   val receiveCommand: Receive = {
-    case Hello(whatever: String) =>
-      println("hello back")
-      sender() ! HttpResponse(StatusCodes.OK)
-    case IngestMe(req,actorRef) =>
-      println("IngestMe receiveCommand doing update")
+    case IngestTaggedItem(id,req) =>
+      req match {
+        case PublishRequest(Nil, Nil) =>
+          println("IngestTaggedItem:PublishRequest badrequest")
+          DiagnosticMessage.sendError(sender(), StatusCodes.BadRequest, "empty payload")
+        case PublishRequest(Nil, failures) =>
+          println("IngestTaggedItem:PublishRequest onlyfailures")
+          updateStats(failures)
+          val msg = FailureMessage.error(failures)
+          sendError(sender(), StatusCodes.BadRequest, msg)
+        case PublishRequest(values, Nil) =>
+          println("IngestTaggedItem:PublishRequest all good")
+          update(values)
+          sender() ! HttpResponse(StatusCodes.OK)
+        case PublishRequest(values, failures) =>
+          println("IngestTaggedItem:PublishRequest partial failures")
+          update(values)
+          updateStats(failures)
+          val msg = FailureMessage.partial(failures)
+          sendError(sender(), StatusCodes.Accepted, msg)
+      }
+      /*
+      println("IngestTaggedItem receiveCommand doing update")
       println("Sender is " + sender.toString())
-      println("ActorRef is " + actorRef.toString())
       update(req.values)
       //persist(ClusterPublishEvt(Json.encode(req.values))) { event =>
       //  updateState(event)
       //  context.system.eventStream.publish(event)
       //}
       println("IngestMe sending back OK")
-      actorRef ! HttpResponse(StatusCodes.OK)
+      sender() ! "OK"
+      //StatusCodes.OK
+      //actorRef ! HttpResponse(StatusCodes.OK)
+       
+       */
     case "snap"  =>
       println("Command is to take a snapshot...")
       // check if there are more values than we had before
@@ -214,14 +228,8 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       updateStats(failures)
       val msg = FailureMessage.error(failures)
       sendError(sender(), StatusCodes.BadRequest, msg)
-    
     case PublishRequest(values, Nil) =>
-      println("UGH publish doing update")
       update(values)
-      //persist(ClusterPublishEvt(Json.encode(values))) { event =>
-      //  updateState(event)
-      //  context.system.eventStream.publish(event)
-      //}
       sender() ! HttpResponse(StatusCodes.OK)
     case PublishRequest(values, failures) =>
       update(values)
