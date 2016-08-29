@@ -88,6 +88,7 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
           // that is unique to the ingestion
           //
           // This uses a "future" to ingest everything and get the response
+          var ingestionStatusCode: StatusCode = StatusCodes.OK
           data.foreach { x =>
             var ti = TaggedItem.computeId(x.tags)
             var id = x.idString
@@ -97,11 +98,26 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
             println(s"publishapi sending request to " + publishRef.toString())
             val future = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds)
             println("waiting....")
-            val result = Await.result(future, 5.seconds).asInstanceOf[String]
-            println("handleReq future response is " + result)
+            val result = Await.result(future, 5.seconds).asInstanceOf[HttpResponse]
+            println("##############################handleReq future response is " + result)
+            ingestionStatusCode = result.status
+            result.status match {
+              case StatusCodes.BadRequest =>
+                println("request was bad")
+                //result.entity match {
+                //  case _: FailureMessage =>
+                //  case _: DiagnosticMessage =>  
+                //}
+              case StatusCodes.OK =>
+                println("all metrics ingested")
+              case StatusCodes.Accepted =>
+                println("some metrics rejected")
+              case _ =>
+                println("unrecognized response from publishactor")
+            }
           }
           println("Sending response...")
-          ctx.responder ! HttpResponse(StatusCodes.OK)
+          ctx.responder ! HttpResponse(ingestionStatusCode)
         case None =>
           throw new IllegalArgumentException("empty request body")
       }

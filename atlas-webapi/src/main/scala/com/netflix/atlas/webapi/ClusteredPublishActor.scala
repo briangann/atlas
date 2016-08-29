@@ -58,6 +58,7 @@ object ClusteredPublishActor{
 
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
     case IngestTaggedItem(taggedItemId: BigInteger, req: PublishRequest) =>
+      println("************** IngestTaggedItem IngestTaggedItem num shards = " + bignumberOfShards)
       println("************** IngestTaggedItem IngestTaggedItem extract shardid *********")
       var shardId = taggedItemId.abs().mod(bignumberOfShards)
       println("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
@@ -178,6 +179,8 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           updateStats(failures)
           val msg = FailureMessage.partial(failures)
           sendError(sender(), StatusCodes.Accepted, msg)
+        case _ =>
+          println("IngestTaggedItem: unknown request - " + req)
       }
       /*
       println("IngestTaggedItem receiveCommand doing update")
