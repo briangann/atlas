@@ -45,20 +45,13 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
   override def startImpl(): Unit = {
     import scala.collection.JavaConverters._
     
-    config.getConfigList("atlas.akka.atlascluster").asScala.foreach { cfg =>
+    config.getConfigList("atlas.akka.atlascluster.cluster").asScala.foreach { cfg =>
       var name = cfg.getString("name")
       val cls = Class.forName(cfg.getString("class"))
       var clusterExtractEntityId: akka.cluster.sharding.ShardRegion.ExtractEntityId = null
-
-      // for now, no shards, we just want a duplicate
-      val numberOfShards = 2
       
-      var shardid = (math.abs(name.hashCode) % numberOfShards).toString
-      var clusterExtractShardId: akka.cluster.sharding.ShardRegion.ExtractShardId = {
-        _ => (math.abs(name.hashCode) % numberOfShards).toString
-      }
-      
-//      logger.info(s"\n\n*******************shardid is ${shardid} for Actor ${cls.getName} *******************")       
+      var shardid: String = "0"
+      var clusterExtractShardId: akka.cluster.sharding.ShardRegion.ExtractShardId = null
       
       var knownActor: Boolean = true
       cls.getName match {
@@ -85,12 +78,6 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
 
         val decider = ClusterSharding(system).shardRegion(name)      
         logger.info(s"\n\n*******************Created Actor in the new Cluster Actor with region ${name}*******************")      
-        //val ref = system.actorOf(
-        //    Props(classFactory.newInstance[Actor](cls)).withMailbox("cluster-mailbox"), name)
-          
-        //val ref = system.actorOf(newActor(name, cls), name)
-        //logger.info(cls.toString())
-        //logger.info(s"created actor '${ref.path}' using class '${cls.getName}'\n\n")
       }
       else {
         logger.info(s"\n\n*******************SKIPPED Unknown Actor ${cls.getName} in the new Cluster Actor*******************")      
@@ -99,13 +86,6 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
     }
   }
 
-  private def newActor(name: String, cls: Class[_]): Props = {
-    val props = Props(classFactory.newInstance[Actor](cls))
-    val routerCfgPath = s"akka.actor.deployment./$name.router"
-    if (config.hasPath(routerCfgPath)) FromConfig.props(props) else props
-  }
-
-  
   override def stopImpl(): Unit = {
   //  Await.ready(system.terminate(), Duration.Inf)
   }

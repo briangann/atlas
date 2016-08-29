@@ -36,9 +36,12 @@ import scala.concurrent.duration._
 class TagsRequestActor extends Actor with ActorLogging {
 
   import com.netflix.atlas.webapi.TagsApi._
-  com.netflix.atlas.core.index.TagQuery
+  import com.netflix.atlas.config.ConfigManager
+  //com.netflix.atlas.core.index.TagQuery
 
   val dbRef = ClusterSharding(context.system).shardRegion(ClusteredDatabaseActor.shardName)
+  private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  private val numberOfShards = config.getInt("number-of-shards")
 
   var request: Request = _
   var responseRef: ActorRef = _
@@ -69,7 +72,7 @@ class TagsRequestActor extends Actor with ActorLogging {
           // ask all shards
           var shardId: Int = 0
           var results: List[TagListResponse] = List()
-          for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+          for (shardId <- 0 to numberOfShards -1) {
             val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTags(shardId, tq))(5.seconds)
             println("Sharded ListTagsRequest: waiting....")
             // TODO: Handle exceptions
@@ -103,7 +106,7 @@ class TagsRequestActor extends Actor with ActorLogging {
           // ask all shards
           var shardId: Int = 0
           var results: List[ValueListResponse] = List()
-          for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+          for (shardId <- 0 to numberOfShards -1) {
             val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTagValues(shardId, tq))(5.seconds)
             println("Sharded ListValuesRequest: waiting....")
             // TODO: Handle exceptions
@@ -137,7 +140,7 @@ class TagsRequestActor extends Actor with ActorLogging {
           // ask all shards
           var shardId: Int = 0
           var results: List[KeyListResponse] = List()
-          for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+          for (shardId <- 0 to numberOfShards -1) {
             val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTagKeys(shardId, tq))(5.seconds)
             println("Sharded ListKeysRequest: waiting....")
             // TODO: Handle exceptions

@@ -41,21 +41,17 @@ import java.math.BigInteger
 
 object ClusteredDatabaseActor{
   import com.netflix.atlas.webapi.PublishApi._
-
+  //import com.netflix.atlas.config.ConfigManager
+  //private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  //private val numberOfShards = config.getInt("number-of-shards")
+  //private val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
   def shardName = "ClusteredDatabaseActor"
 
-  val numberOfShards = 2
-  val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
-  case class GetShardData(taggedItemId: BigInteger, req: DataRequest, actorRef: ActorRef)
   case class GetShardedData(shardId: Int, req: DataRequest)
   case class GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
   case class GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
   case class GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
-    case GetShardData(taggedItemId: BigInteger, req: DataRequest, actorRef: ActorRef) =>
-      println("************** GetShardData extract shardid *********")
-      println("************** GetShardData extract shardid = " + taggedItemId.abs().mod(bignumberOfShards))
-      taggedItemId.abs().mod(bignumberOfShards).toString()
     case GetShardedData(shardId: Int, req: DataRequest) =>
       println("************** GetShardedData explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
@@ -70,7 +66,6 @@ object ClusteredDatabaseActor{
       BigInteger.valueOf(shardId).toString()      
   }
   val extractEntityId: ShardRegion.ExtractEntityId = {
-    case d: GetShardData =>  (d.taggedItemId.toString(), d)
     case d: GetShardedData =>  (d.shardId.toString(), d)
     case d: GetShardedTags =>  (d.shardId.toString(), d)
     case d: GetShardedTagKeys =>  (d.shardId.toString(), d)
@@ -94,14 +89,14 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
   import ClusteredDatabaseActor._
   import akka.cluster._
   import akka.cluster.ClusterEvent._
-  import ShardRegion.Passivate
+  //import ShardRegion.Passivate
   import com.netflix.atlas.webapi.GraphApi._
   import com.netflix.atlas.webapi.TagsApi._
   import scala.concurrent.duration._
 
   override def persistenceId = self.path.parent.name + "-" + self.path.name
   // passivate the entity when there is no activity
-  context.setReceiveTimeout(2.minutes)
+  //context.setReceiveTimeout(2.minutes)
  
   var state = ClusterDatabaseState()
  
@@ -131,12 +126,6 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
       sender() ! TagListResponse(db.index.findTags(tq))
     case ListKeysRequest(tq)    => sender() ! KeyListResponse(db.index.findKeys(tq).map(_.name))
     case ListValuesRequest(tq)  => sender() ! ValueListResponse(db.index.findValues(tq))
-    case GetShardData(taggedItemId: BigInteger, req: DataRequest, actorRef: ActorRef) =>
-       println("GetShardData sending back OK")
-       var resp = executeDataRequest(req)
-       println("GetShardData resp is " + resp)
-       sender() ! resp
-       //sender() ! "OK"
     case GetShardedData(shardId: Int, req: DataRequest) =>
        println("GetShardedData sending back OK")
        var resp = executeDataRequest(req)

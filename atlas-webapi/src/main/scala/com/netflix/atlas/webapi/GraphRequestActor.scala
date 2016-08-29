@@ -44,11 +44,15 @@ import scala.concurrent.duration._
 class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor with ActorLogging {
 
   import com.netflix.atlas.webapi.GraphApi._
-import com.netflix.atlas.core.index.TagQuery
+  import com.netflix.atlas.core.index.TagQuery
+  import com.netflix.atlas.config.ConfigManager
 
   private val errorId = registry.createId("atlas.graph.errorImages")
 
   val dbRef = ClusterSharding(context.system).shardRegion(ClusteredDatabaseActor.shardName)
+
+  private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  private val numberOfShards = config.getInt("number-of-shards")
 
   private var request: Request = _
   private var responseRef: ActorRef = _
@@ -64,57 +68,6 @@ import com.netflix.atlas.core.index.TagQuery
     }
   }
 
-  /*
-   * old crap
-    case req: Request =>
-      request = req
-      responseRef = sender()
-      // Need to pull out all of the tags that the query will use
-      val dataExprs = req.exprs.flatMap(_.expr.dataExprs)
-      val deduped = dataExprs.toSet.toList
-      // println("deduped is " + deduped)
-      var result: List[DataResponse] = List()
-      println("There are " + deduped.size + " data expressions to process")
-      deduped.foreach { x =>
-        val pairs = Query.tags(x.query)
-        // println("pairs is " + pairs)
-        var ti = TaggedItem.computeId(pairs)
-        // TODO: make this a comprehension-style future
-        // this is slow, need to do these in parallel, plus handle exceptions
-        // See http://doc.akka.io/docs/akka/snapshot/scala/futures.html#futures-scala
-        println("Sending db req " + req.toDbRequest.toString())
-        // TODO: GetShardData may not require the "self" parameter since it uses sender()
-        val future = dbRef.ask(ClusteredDatabaseActor.GetShardData(ti, req.toDbRequest, self))(5.seconds)
-        println("waiting....")
-        // TODO: Handle exceptions
-        var aresult: DataResponse = Await.result(future, 5.seconds).asInstanceOf[DataResponse]
-        println("got something...")
-        println("handleReq future response is " + aresult)
-        // push into our list
-        result = aresult :: result
-      }
-      //println("result as list is " + result)
-      // now merge the results
-      //println("All done, merging results")
-      //println("Merging...")
-      var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
-      result.foreach { aDataResponse =>
-        aDataResponse.ts.foreach{ item =>
-          // check the size of the List in the Map
-          var v = item._2
-          // println("v is " + v)
-          if (v.size > 0) {
-            // println("this key/value was NOT empty, adding it")
-            mergedData = mergedData ++ aDataResponse.ts
-          }
-        }
-      }
-      // println("mergedData is " + mergedData)
-      //responseRef = sender()
-      sendImage(mergedData.toMap)
-  
-  
-   */
   def innerReceive: Receive = {
     case req: Request =>
       request = req
@@ -125,7 +78,7 @@ import com.netflix.atlas.core.index.TagQuery
       var dbRequest = req.toDbRequest
       println("GetShardedData: dbrequest is " + dbRequest)
       var shardId: Int = 0
-      for (shardId <- 0 to ClusteredDatabaseActor.numberOfShards -1) {
+      for (shardId <- 0 to numberOfShards -1) {
         println("Sharded GetShardedData Request: Asking shard# " + shardId)
         val future = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(5.seconds)
         println("Sharded GetShardedData Request: waiting....")

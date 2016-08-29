@@ -48,10 +48,11 @@ import java.math.BigInteger
 
 object ClusteredPublishActor{
   import com.netflix.atlas.webapi.PublishApi._
-
+  import com.netflix.atlas.config.ConfigManager
   def shardName = "ClusteredPublishActor"
-  val numberOfShards: Int = 2
-  val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
+  private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  private val numberOfShards = config.getInt("number-of-shards")
+  private val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
 
   case class IngestTaggedItem(taggedItemId: BigInteger, req: PublishRequest)
 
