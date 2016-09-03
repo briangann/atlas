@@ -27,10 +27,12 @@ import org.slf4j.LoggerFactory
 import spray.client.pipelining._
 import spray.http.HttpEncodingRange
 import spray.http.HttpEncodings
+import spray.http.HttpEntity
 import spray.http.HttpHeaders
 import spray.http.HttpMethods
 import spray.http.HttpRequest
 import spray.http.HttpResponse
+import spray.http.MediaTypes
 import spray.httpx.encoding.Gzip
 
 import scala.concurrent.Future
@@ -39,9 +41,9 @@ import scala.util.Success
 
 /**
   * Sink for the poller data that publishes the metrics to Atlas. The actor expects
-  * [[MetricsPayload]] messages and does not send a response. Failures will be logged
-  * and reflected in the `atlas.client.dropped` counter as well as standard client
-  * access logging.
+  * [[Messages.MetricsPayload]] messages and does not send a response. Failures will
+  * be logged and reflected in the `atlas.client.dropped` counter as well as standard
+  * client access logging.
   */
 class ClientActor(registry: Registry, config: Config) extends Actor {
 
@@ -51,10 +53,10 @@ class ClientActor(registry: Registry, config: Config) extends Actor {
 
   private val pipeline: SendReceive = sendReceive ~> decode(Gzip)
 
-  private val uri = config.getString("atlas.poller.sink.uri")
-  private val batchSize = config.getInt("atlas.poller.sink.batch-size")
+  private val uri = config.getString("uri")
+  private val batchSize = config.getInt("batch-size")
 
-  private val shouldSendAck = config.getBoolean("atlas.poller.sink.send-ack")
+  private val shouldSendAck = config.getBoolean("send-ack")
 
   private val datapointsSent = registry.counter("atlas.client.sent")
   private val datapointsDropped = registry.createId("atlas.client.dropped")
@@ -84,7 +86,7 @@ class ClientActor(registry: Registry, config: Config) extends Actor {
     val request = HttpRequest(HttpMethods.POST,
       uri = uri,
       headers = ClientActor.headers,
-      entity = data)
+      entity = HttpEntity(CustomMediaTypes.`application/x-jackson-smile`, data))
     val accessLogger = AccessLogger.newClientLogger("atlas_publish", request)
     pipeline(request).andThen { case t => accessLogger.complete(t) }
   }
@@ -128,6 +130,6 @@ object ClientActor {
   private val gzip = HttpEncodingRange(HttpEncodings.gzip)
   private val headers = List(
     HttpHeaders.`Accept-Encoding`(Seq(gzip)),
-    HttpHeaders.Accept(CustomMediaTypes.`application/x-jackson-smile`)
+    HttpHeaders.Accept(MediaTypes.`application/json`)
   )
 }

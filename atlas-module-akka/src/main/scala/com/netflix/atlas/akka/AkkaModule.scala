@@ -32,7 +32,7 @@ import com.netflix.atlas.akkacluster.ActorClusterService
   * Configures the actor system and web server. This module expects that bindings
   * are available for [[com.typesafe.config.Config]] and [[com.netflix.spectator.api.Registry]].
   */
-class AkkaModule extends AbstractModule {
+final class AkkaModule extends AbstractModule {
   override def configure(): Unit = {
     install(new LifecycleModule)
     val serviceBinder = Multibinder.newSetBinder(binder, classOf[Service])
@@ -46,5 +46,11 @@ class AkkaModule extends AbstractModule {
     val name = config.getString("atlas.akka.name")
     ActorSystem(name, config)
   }
+
+  override def equals(obj: Any): Boolean = {
+    obj != null && getClass.equals(obj.getClass)
+  }
+
+  override def hashCode(): Int = getClass.hashCode()
 }
 

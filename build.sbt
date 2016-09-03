@@ -10,8 +10,10 @@ lazy val root = project.in(file("."))
     `atlas-json`,
     `atlas-akka-cluster`,
     `atlas-module-akka`,
+    `atlas-module-cloudwatch`,
     `atlas-module-webapi`,
     `atlas-poller`,
+    `atlas-poller-cloudwatch`,
     `atlas-standalone`,
     `atlas-test`,
     `atlas-webapi`,
@@ -94,6 +96,16 @@ lazy val `atlas-module-akka` = project
     Dependencies.typesafeConfig
   ))
 
+lazy val `atlas-module-cloudwatch` = project
+  .configure(BuildSettings.profile)
+  .dependsOn(`atlas-module-akka`, `atlas-poller-cloudwatch`)
+  .settings(libraryDependencies ++= Seq(
+    Dependencies.guiceCore,
+    Dependencies.guiceMulti,
+    Dependencies.iepGuice,
+    Dependencies.iepModuleAws
+  ))
+
 lazy val `atlas-module-webapi` = project
   .configure(BuildSettings.profile)
   .dependsOn(`atlas-webapi`)
@@ -132,6 +144,15 @@ lazy val `atlas-poller` = project
     Dependencies.sprayClient,
     Dependencies.akkaTestkit % "test",
     Dependencies.sprayTestkit % "test"
+  ))
+
+lazy val `atlas-poller-cloudwatch` = project
+  .configure(BuildSettings.profile)
+  .dependsOn(`atlas-core`, `atlas-poller`)
+  .settings(libraryDependencies ++= Seq(
+    Dependencies.awsCloudWatch,
+    Dependencies.frigga,
+    Dependencies.iepService
   ))
 
 lazy val `atlas-standalone` = project
