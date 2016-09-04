@@ -46,9 +46,11 @@ import scala.concurrent.duration.Duration;
 import java.util.concurrent.TimeUnit;
 import java.math.BigInteger
 
+
 object ClusteredPublishActor{
   import com.netflix.atlas.webapi.PublishApi._
   import com.netflix.atlas.config.ConfigManager
+
   def shardName = "ClusteredPublishActor"
   private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
   private val numberOfShards = config.getInt("number-of-shards")
@@ -58,10 +60,10 @@ object ClusteredPublishActor{
 
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
     case IngestTaggedItem(taggedItemId: BigInteger, req: PublishRequest) =>
-      println("************** IngestTaggedItem IngestTaggedItem num shards = " + bignumberOfShards)
-      println("************** IngestTaggedItem IngestTaggedItem extract shardid *********")
+      //log.info("************** IngestTaggedItem IngestTaggedItem num shards = " + bignumberOfShards)
+      //logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid *********")
       var shardId = taggedItemId.abs().mod(bignumberOfShards)
-      println("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
+      //logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
       shardId.toString
   }
   
@@ -126,22 +128,22 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   val receiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
       updateState(evt)
-      println("I should be putting stuff back into the memory database...")
-      println("evt data is " + evt.data)
+      log.info("I should be putting stuff back into the memory database...")
+      log.info("evt data is " + evt.data)
       var myDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](evt.data)
-      println("Mydatapoints is " + myDatapoints.toString())
+      log.info("Mydatapoints is " + myDatapoints.toString())
       update(myDatapoints)
     case SnapshotOffer(metadata, snapshot: ClusterPublishState) =>
-      println("Lets try to use a snapshot... with size " + snapshot.size)
+      log.info("Lets try to use a snapshot... with size " + snapshot.size)
       state = snapshot
       // on initial startup the sequence is unknown
       if (lastSnapshotSequenceNum == 0) {
         lastSnapshotSequenceNum = metadata.sequenceNr
         lastSnapshotTimestamp = metadata.timestamp
       }
-      println("ok, we used a snapshot... when recovery is completed, make sure to populate memorydb!")
+      log.info("ok, we used a snapshot... when recovery is completed, make sure to populate memorydb!")
     case RecoveryCompleted =>
-      println("recovery completed... now populate the memorydb")
+      log.info("recovery completed... now populate the memorydb")
       // we also need to load up our memory database with the snapshot data
       state.events.foreach {
         datapoint =>
@@ -162,58 +164,44 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     case IngestTaggedItem(id,req) =>
       req match {
         case PublishRequest(Nil, Nil) =>
-          println("IngestTaggedItem:PublishRequest badrequest")
+          log.info("IngestTaggedItem:PublishRequest badrequest")
           DiagnosticMessage.sendError(sender(), StatusCodes.BadRequest, "empty payload")
         case PublishRequest(Nil, failures) =>
-          println("IngestTaggedItem:PublishRequest onlyfailures")
+          log.info("IngestTaggedItem:PublishRequest onlyfailures")
           updateStats(failures)
           val msg = FailureMessage.error(failures)
           sendError(sender(), StatusCodes.BadRequest, msg)
         case PublishRequest(values, Nil) =>
-          println("IngestTaggedItem:PublishRequest all good")
+          log.info("IngestTaggedItem:PublishRequest all good")
           update(values)
           sender() ! HttpResponse(StatusCodes.OK)
         case PublishRequest(values, failures) =>
-          println("IngestTaggedItem:PublishRequest partial failures")
+          log.info("IngestTaggedItem:PublishRequest partial failures")
           update(values)
           updateStats(failures)
           val msg = FailureMessage.partial(failures)
           sendError(sender(), StatusCodes.Accepted, msg)
         case _ =>
-          println("IngestTaggedItem: unknown request - " + req)
+          log.info("IngestTaggedItem: unknown request - " + req)
       }
-      /*
-      println("IngestTaggedItem receiveCommand doing update")
-      println("Sender is " + sender.toString())
-      update(req.values)
-      //persist(ClusterPublishEvt(Json.encode(req.values))) { event =>
-      //  updateState(event)
-      //  context.system.eventStream.publish(event)
-      //}
-      println("IngestMe sending back OK")
-      sender() ! "OK"
-      //StatusCodes.OK
-      //actorRef ! HttpResponse(StatusCodes.OK)
-       
-       */
     case "snap"  =>
-      println("Command is to take a snapshot...")
+      log.info("Command is to take a snapshot...")
       // check if there are more values than we had before
       if (state.size > lastSnapshotSize) {
-        println(s"Taking a snapshot, old size was " + lastSnapshotSize + " new size is " +  state.size)
+        log.info(s"Taking a snapshot, old size was " + lastSnapshotSize + " new size is " +  state.size)
         saveSnapshot(state)
         // save the size, if the snapshot succeeds this will become our
         // new last snapshot size
         futureSnapshotSize = state.size
       }
       else {
-        println("No changes have been made, skipping snapshot")
+        log.info("No changes have been made, skipping snapshot")
       }
     case SaveSnapshotSuccess(m) =>
-      println(s"snapshot saved. seqNum:${m.sequenceNr}, timeStamp:${m.timestamp}")
+      log.info(s"snapshot saved. seqNum:${m.sequenceNr}, timeStamp:${m.timestamp}")
       // check if the sequence number has changed, if it has, then we want to purge all of the old snapshots
       if (m.sequenceNr > lastSnapshotSequenceNum) {
-        println(s"Sequence has increased, will purge old snapshots, old seq was " + lastSnapshotSequenceNum + " new seq is " +  m.sequenceNr)
+        log.info(s"Sequence has increased, will purge old snapshots, old seq was " + lastSnapshotSequenceNum + " new seq is " +  m.sequenceNr)
         // delete our old snapshots
         deleteSnapshots(new SnapshotSelectionCriteria(lastSnapshotSequenceNum, lastSnapshotTimestamp))
         //deleteSnapshot(lastSnapshotSequenceNum)
@@ -251,11 +239,18 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     val now = System.currentTimeMillis()
     vs.foreach { v =>
       numReceived.record(now - v.timestamp)
-      v.tags.get(TagKey.dsType) match {
-        case Some("counter") => cache.updateCounter(v)
-        case Some("gauge")   => cache.updateGauge(v)
-        case Some("rate")    => cache.updateRate(v)
-        case _               => cache.updateRate(v)
+      try {
+        v.tags.get(TagKey.dsType) match {
+          case Some("counter") => 
+              cache.updateCounter(v)
+          case Some("gauge")   => cache.updateGauge(v)
+          case Some("rate")    => cache.updateRate(v)
+          case _               => cache.updateRate(v)
+        }
+      }
+      catch {
+        case e: Exception =>
+          log.error("skipping ingestion, error is:", e)
       }
     }
   }

@@ -68,20 +68,20 @@ class TagsRequestActor extends Actor with ActorLogging {
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          println("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
+          log.info("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var shardId: Int = 0
           var results: List[TagListResponse] = List()
           for (shardId <- 0 to numberOfShards -1) {
             val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTags(shardId, tq))(5.seconds)
-            println("Sharded ListTagsRequest: waiting....")
+            log.info("Sharded ListTagsRequest: waiting....")
             // TODO: Handle exceptions
             var aresult: TagListResponse = Await.result(future, 5.seconds).asInstanceOf[TagListResponse]
-            println("Sharded ListTagsRequest: got something...")
-            println("Sharded ListTagsRequest: handleReq future response is " + aresult)
+            log.info("Sharded ListTagsRequest: got something...")
+            log.info("Sharded ListTagsRequest: handleReq future response is " + aresult)
             results = aresult :: results
           }
-          println("Sharded ListValuesRequest: result as list is " + results)
+          log.info("Sharded ListValuesRequest: result as list is " + results)
           // merge results
           var data = List[Tag]() 
           results.foreach { aDataResponse =>
@@ -94,7 +94,7 @@ class TagsRequestActor extends Actor with ActorLogging {
           }
           
           var mergedData = TagListResponse(data)
-          println("Sharded ListValuesRequest: merged data: " + mergedData)
+          log.info("Sharded ListValuesRequest: merged data: " + mergedData)
           // send the result back to ourself, so we can re-use the non-clustered case statements
           self ! mergedData
 
@@ -102,20 +102,20 @@ class TagsRequestActor extends Actor with ActorLogging {
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          println("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
+          log.info("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var shardId: Int = 0
           var results: List[ValueListResponse] = List()
           for (shardId <- 0 to numberOfShards -1) {
             val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTagValues(shardId, tq))(5.seconds)
-            println("Sharded ListValuesRequest: waiting....")
+            log.info("Sharded ListValuesRequest: waiting....")
             // TODO: Handle exceptions
             var aresult: ValueListResponse = Await.result(future, 5.seconds).asInstanceOf[ValueListResponse]
-            println("Sharded ListValuesRequest: got something...")
-            println("Sharded ListValuesRequest: handleReq future response is " + aresult)
+            log.info("Sharded ListValuesRequest: got something...")
+            log.info("Sharded ListValuesRequest: handleReq future response is " + aresult)
             results = aresult :: results
           }
-          println("Sharded ListValuesRequest: result as list is " + results)
+          log.info("Sharded ListValuesRequest: result as list is " + results)
           // merge results
           var data = List[String]() 
           results.foreach { aDataResponse =>
@@ -128,7 +128,7 @@ class TagsRequestActor extends Actor with ActorLogging {
           }
           
           var mergedData = ValueListResponse(data)
-          println("Sharded ListValuesRequest: merged data: " + mergedData)
+          log.info("Sharded ListValuesRequest: merged data: " + mergedData)
           // send the result back to ourself, so we can re-use the non-clustered case statements
           self ! mergedData
 
@@ -136,20 +136,20 @@ class TagsRequestActor extends Actor with ActorLogging {
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          println("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
+          log.info("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var shardId: Int = 0
           var results: List[KeyListResponse] = List()
           for (shardId <- 0 to numberOfShards -1) {
             val future = dbRef.ask(ClusteredDatabaseActor.GetShardedTagKeys(shardId, tq))(5.seconds)
-            println("Sharded ListKeysRequest: waiting....")
+            log.info("Sharded ListKeysRequest: waiting....")
             // TODO: Handle exceptions
             var aresult: KeyListResponse = Await.result(future, 5.seconds).asInstanceOf[KeyListResponse]
-            println("Sharded ListKeysRequest: got something...")
-            println("Sharded ListKeysRequest: handleReq future response is " + aresult)
+            log.info("Sharded ListKeysRequest: got something...")
+            log.info("Sharded ListKeysRequest: handleReq future response is " + aresult)
             results = aresult :: results
           }
-          println("Sharded ListKeysRequest: result as list is " + results)
+          log.info("Sharded ListKeysRequest: result as list is " + results)
           // merge results
           var data = List[String]() 
           results.foreach { aDataResponse =>
@@ -162,11 +162,11 @@ class TagsRequestActor extends Actor with ActorLogging {
           }
           
           var mergedData = KeyListResponse(data)
-          println("Sharded ListKeysRequest: merged data: " + mergedData)
+          log.info("Sharded ListKeysRequest: merged data: " + mergedData)
           // send the result back to ourself, so we can re-use the non-clustered case statements
           self ! mergedData
 
-        case _ => println("error Unknown class")
+        case _ => log.info("error Unknown class")
       }
   
       

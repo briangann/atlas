@@ -72,67 +72,67 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
     case req: Request =>
       request = req
       responseRef = sender()
-      println("GetShardedData: request is " + req)
+      log.info("GetShardedData: request is " + req)
       // ask all shards
       var results: List[DataResponse] = List()
       var dbRequest = req.toDbRequest
-      println("GetShardedData: dbrequest is " + dbRequest)
+      log.info("GetShardedData: dbrequest is " + dbRequest)
       var shardId: Int = 0
       for (shardId <- 0 to numberOfShards -1) {
-        println("Sharded GetShardedData Request: Asking shard# " + shardId)
+        log.info("Sharded GetShardedData Request: Asking shard# " + shardId)
         val future = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(5.seconds)
-        println("Sharded GetShardedData Request: waiting....")
+        log.info("Sharded GetShardedData Request: waiting....")
         // TODO: Handle exceptions
         var aresult: DataResponse = Await.result(future, 5.seconds).asInstanceOf[DataResponse]
-        println("Sharded GetShardedData Request: future response is " + aresult)
+        log.info("Sharded GetShardedData Request: future response is " + aresult)
         results = aresult :: results
       }
-      println("result as list is " + results)
+      log.info("result as list is " + results)
       // now merge the results
-      println("All done, merging results")
-      println("Merging...")
+      log.info("All done, merging results")
+      log.info("Merging...")
       var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
       results.foreach { aDataResponse =>
         aDataResponse.ts.foreach{ item =>
           // check the size of the List in the Map
           var k = item._1
           var v = item._2
-          println("v is " + v)
+          log.info("v is " + v)
           
           if (v.size > 0) {
-            println("this key/value was NOT empty")
+            log.info("this key/value was NOT empty")
             // need to purge anything with NO_DATA inside
             var validData = List[TimeSeries]()
             v.foreach { ts =>
               if (ts.label.equals("NO DATA")) {
                 // no data detected, not valid
-                println("NO_DATA detected, skipping this result")
+                log.info("NO_DATA detected, skipping this result")
               }
               else {
                 // append
-                println("Appending valid data")
+                log.info("Appending valid data")
                 validData = ts:: validData
               }
             }
             if (validData.size > 0) {
               // reduce to distinct values
               validData = validData.distinct
-              println("Valid Data is " + validData)
+              log.info("Valid Data is " + validData)
               var newMap = Map[DataExpr,List[TimeSeries]](k ->validData)
-              println("*****newMap is " + newMap)
-              println("******mergedData was " + mergedData)
+              log.info("*****newMap is " + newMap)
+              log.info("******mergedData was " + mergedData)
               mergedData = mergedData ++ newMap
-              println("******mergedData is now " + mergedData)
+              log.info("******mergedData is now " + mergedData)
             }
           }
         }
       }
-      println("mergedData is " + mergedData)
+      log.info("mergedData is " + mergedData)
 
       sendImage(mergedData.toMap)
     case DataResponse(data) =>
-      println("Got DataResponse...")
-      println("Data is " + data)
+      log.info("Got DataResponse...")
+      log.info("Data is " + data)
       sendImage(data)
     case ev: Http.ConnectionClosed =>
       log.info("connection closed")

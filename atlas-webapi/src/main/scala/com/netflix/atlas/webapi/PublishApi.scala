@@ -33,10 +33,6 @@ import com.netflix.atlas.json.Json
 import com.netflix.atlas.json.JsonSupport
 import spray.routing.RequestContext
 
-// for clustered nodes, we use pub-sub
-//import akka.cluster.pubsub.DistributedPubSub
-//import akka.cluster.pubsub.DistributedPubSubMediator.{Publish, Subscribe}
-
 
 import com.netflix.atlas.core.model._
 
@@ -57,6 +53,8 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
 
   import com.netflix.atlas.webapi.PublishApi._
 
+  import org.slf4j.LoggerFactory
+  private val logger = LoggerFactory.getLogger(getClass)
   //private val publishRef = actorRefFactory.actorSelection("/user/publish")
   val publishRef = ClusterSharding(system).shardRegion(ClusteredPublishActor.shardName)
 
@@ -92,31 +90,31 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
           data.foreach { x =>
             var ti = TaggedItem.computeId(x.tags)
             var id = x.idString
-            println("ti is " + ti + " id is " + id)
+            logger.info("ti is " + ti + " id is " + id)
             var newList: List[Datapoint] = List(x)
             val aReq = validate(newList)
-            println(s"publishapi sending request to " + publishRef.toString())
+            logger.info(s"publishapi sending request to " + publishRef.toString())
             val future = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds)
-            println("waiting....")
+            logger.info("waiting....")
             val result = Await.result(future, 5.seconds).asInstanceOf[HttpResponse]
-            println("##############################handleReq future response is " + result)
+            logger.info("##############################handleReq future response is " + result)
             ingestionStatusCode = result.status
             result.status match {
               case StatusCodes.BadRequest =>
-                println("request was bad")
+                logger.info("request was bad")
                 //result.entity match {
                 //  case _: FailureMessage =>
                 //  case _: DiagnosticMessage =>  
                 //}
               case StatusCodes.OK =>
-                println("all metrics ingested")
+                logger.info("all metrics ingested")
               case StatusCodes.Accepted =>
-                println("some metrics rejected")
+                logger.info("some metrics rejected")
               case _ =>
-                println("unrecognized response from publishactor")
+                logger.info("unrecognized response from publishactor")
             }
           }
-          println("Sending response...")
+          logger.info("Sending response...")
           ctx.responder ! HttpResponse(ingestionStatusCode)
         case None =>
           throw new IllegalArgumentException("empty request body")

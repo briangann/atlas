@@ -39,12 +39,13 @@ import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
 
 import java.math.BigInteger
 
+import org.slf4j.LoggerFactory
+
 object ClusteredDatabaseActor{
   import com.netflix.atlas.webapi.PublishApi._
-  //import com.netflix.atlas.config.ConfigManager
-  //private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
-  //private val numberOfShards = config.getInt("number-of-shards")
-  //private val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
+  
+  private val logger = LoggerFactory.getLogger(getClass)
+
   def shardName = "ClusteredDatabaseActor"
 
   case class GetShardedData(shardId: Int, req: DataRequest)
@@ -53,16 +54,16 @@ object ClusteredDatabaseActor{
   case class GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
     case GetShardedData(shardId: Int, req: DataRequest) =>
-      println("************** GetShardedData explicit shardid = " + shardId)
+      logger.info("************** GetShardedData explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
     case GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
-      println("************** GetShardedTags explicit shardid = " + shardId)
+      logger.info("************** GetShardedTags explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
     case GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
-      println("************** GetShardedTagValues explicit shardid = " + shardId)
+      logger.info("************** GetShardedTagValues explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
     case GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
-      println("************** GetShardedTagKeys explicit shardid = " + shardId)
+      logger.info("************** GetShardedTagKeys explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()      
   }
   val extractEntityId: ShardRegion.ExtractEntityId = {
@@ -122,26 +123,26 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
     case ShutdownClusteredDatabase =>
       context.stop(self)
     case ListTagsRequest(tq)    =>
-      println("ClusteredDatabaseActor received list tags request")
+      log.info("ClusteredDatabaseActor received list tags request")
       sender() ! TagListResponse(db.index.findTags(tq))
     case ListKeysRequest(tq)    => sender() ! KeyListResponse(db.index.findKeys(tq).map(_.name))
     case ListValuesRequest(tq)  => sender() ! ValueListResponse(db.index.findValues(tq))
     case GetShardedData(shardId: Int, req: DataRequest) =>
-       println("GetShardedData sending back OK")
+       log.info("GetShardedData sending back OK")
        var resp = executeDataRequest(req)
-       println("GetShardedData resp is " + resp)
+       log.info("GetShardedData resp is " + resp)
        sender() ! resp
     case GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
       var resp = TagListResponse(db.index.findTags(tq))
-       println("GetShardedTags resp is " + resp)
+       log.info("GetShardedTags resp is " + resp)
        sender() ! resp
     case GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
       var resp = KeyListResponse(db.index.findKeys(tq).map(_.name))
-       println("GetShardedTags resp is " + resp)
+       log.info("GetShardedTags resp is " + resp)
        sender() ! resp
     case GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
       var resp = ValueListResponse(db.index.findValues(tq))
-       println("GetShardedTagValues resp is " + resp)
+       log.info("GetShardedTagValues resp is " + resp)
        sender() ! resp
   }
   

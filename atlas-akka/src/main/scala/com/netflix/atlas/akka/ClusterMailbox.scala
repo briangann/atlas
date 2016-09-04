@@ -28,9 +28,11 @@ import akka.dispatch.ProducesMessageQueue
 import akka.dispatch.DequeBasedMessageQueueSemantics
 import com.netflix.spectator.api.Spectator
 import com.typesafe.config.Config
+import org.slf4j.LoggerFactory
 
 
 object ClusterMailbox {
+  private val logger = LoggerFactory.getLogger(getClass)
 
   private case class Entry(v: Envelope, t: Long = System.nanoTime)
 
@@ -45,21 +47,21 @@ object ClusterMailbox {
     registry.collectionSize(registry.createId("akka.queue.size", "path", path), queue)
 
     def enqueueFirst(receiver: ActorRef, handle: Envelope): Unit = {
-      println(s"\n\n*******************ClusterMailbox trying to enqueueFirst*******************")
-      println(handle.message.toString())
+      logger.info(s"\n\n*******************ClusterMailbox trying to enqueueFirst*******************")
+      logger.info(handle.message.toString())
       insertCounter.increment()
       queue.offer(Entry(handle))
     }
     
     def enqueue(receiver: ActorRef, handle: Envelope): Unit = {
-      println(s"\n\n*******************ClusterMailbox enqueue*******************")
-      println(handle.message.toString())
+      logger.info(s"\n\n*******************ClusterMailbox enqueue*******************")
+      logger.info(handle.message.toString())
       insertCounter.increment()
       queue.offer(Entry(handle))
     }
 
     def dequeue(): Envelope = {
-      println(s"\n\n*******************ClusterMailbox dequeue*******************")       
+      logger.info(s"\n\n*******************ClusterMailbox dequeue*******************")       
       val tmp = queue.poll()
       if (tmp == null) null else {
         val dur = System.nanoTime - tmp.t
@@ -71,7 +73,7 @@ object ClusterMailbox {
     def numberOfMessages: Int = queue.size
     def hasMessages: Boolean = !queue.isEmpty
     def cleanUp(owner: ActorRef, deadLetters: MessageQueue): Unit = {
-      println(s"\n\n*******************ClusterMailbox cleanup*******************")       
+      logger.info(s"\n\n*******************ClusterMailbox cleanup*******************")       
       queue.clear()
     }
   }
@@ -93,9 +95,9 @@ class ClusterMailbox(settings: ActorSystem.Settings, config: Config) extends Mai
   }
 
   final override def create(owner: Option[ActorRef], system: Option[ActorSystem]): MessageQueue = {
-    println(s"\n\n*******************ClusterMailbox create*******************")       
+    logger.info(s"\n\n*******************ClusterMailbox create*******************")       
     val path = owner.fold("unknown")(r => tagValue(r.path))
-    println(s"\n\n*******************ClusterMailbox create path is ${path}*******************")    
+    logger.info(s"\n\n*******************ClusterMailbox create path is ${path}*******************")    
     new MeteredMessageQueue(path)
   }
 }
