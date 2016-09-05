@@ -89,6 +89,7 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
           //
           // This uses a "future" to ingest everything and get the response
           var ingestionStatusCode: StatusCode = StatusCodes.OK
+         
           // the ingestion process is a sequence of futures that only completes when the children are finished, giving the
           // "worst" result of the ingestion process as the response
           var futureMap = data.map {
@@ -98,72 +99,49 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
               logger.info("ti is " + ti + " id is " + id)
               var newList: List[Datapoint] = List(x)
               val aReq = validate(newList)
-              logger.info(s"PublishApi.Ingest sending request to " + publishRef.toString())
+              logger.info(s"PublishApi.Ingest future will send request to " + publishRef.toString())
               // use a future to send the data
               val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(15.seconds).mapTo[HttpResponse]
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
+          
+          // collect the responses
+          val master = futureSequence.map { 
+            responses =>
+              responses.foreach { aResponse => 
+                // determine what response we should send back
+                aResponse.status match {
+                  case StatusCodes.BadRequest =>
+                    logger.info("PublishApi.Ingest.master.onSuccess: request was bad")
+                    ingestionStatusCode = aResponse.status
+                  case StatusCodes.OK =>
+                    logger.info("PublishApi.Ingest.master.onSuccess: all metrics ingested")
+                    ingestionStatusCode = aResponse.status
+                  case StatusCodes.Accepted =>
+                    logger.warn("PublishApi.Ingest.master.onSuccess: some metrics rejected")
+                    ingestionStatusCode = aResponse.status
+                  case _ =>
+                    logger.warn("PublishApi.Ingest.master.onSuccess: unrecognized response from publishactor: " + aResponse)
+                    ingestionStatusCode = StatusCodes.BadRequest
+                }
+            }
+          }
+          master onComplete {
+            case l => { 
+              //logger.info("PublishApi.Ingest.master.onComplete entered")
+              var aResponse = HttpResponse(ingestionStatusCode)
+              logger.info("PublishApi.Ingest.master.onComplete: onComplete response is " + aResponse)
+              // now send the response, the futures are done
+              logger.info("PublishApi.Ingest.master.onComplete: Sending response..." + ingestionStatusCode)
+              ctx.responder ! HttpResponse(ingestionStatusCode)
+            }
+          }
           // best effort - if there's a failure on an ask, discard it
-          futureSequence onFailure {
+          master onFailure {
             case aFailure => {
-              logger.warn("PublishApi.Ingest.onFailure: " + aFailure)
+              logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
             }
-          }
-          futureSequence onSuccess {
-            case l => {
-              logger.info("******************************** PublishApi.Ingest.onSuccess: " + l)
-              l.foreach { aSuccess =>
-                aSuccess match {
-                  case HttpResponse(_,_,_,_) => {
-                    aSuccess.status match {
-                      case StatusCodes.BadRequest =>
-                        logger.info("PublishApi.Ingest.onSuccess: request was bad")
-                        ingestionStatusCode = aSuccess.status
-                      case StatusCodes.OK =>
-                        logger.info("PublishApi.Ingest.onSuccess: all metrics ingested")
-                        ingestionStatusCode = aSuccess.status
-                      case StatusCodes.Accepted =>
-                        logger.warn("PublishApi.Ingest.onSuccess: some metrics rejected")
-                        ingestionStatusCode = aSuccess.status
-                      case _ =>
-                        logger.warn("PublishApi.Ingest.onSuccess: unrecognized response from publishactor")
-                        ingestionStatusCode = StatusCodes.BadRequest
-                    }
-                  }
-                }
-              }
-            }
-          }
-          futureSequence onComplete {
-            case l => {
-              l.foreach { i =>
-                logger.info("PublishApi.Ingest.onComplete: response: " + i)
-                i.foreach {
-                  aCompletion =>
-                    aCompletion.status match {
-                      case StatusCodes.BadRequest =>
-                        logger.info("PublishApi.Ingest.onComplete: request was bad")
-                        ingestionStatusCode = aCompletion.status
-                      case StatusCodes.OK =>
-                        logger.info("PublishApi.Ingest.onComplete: all metrics ingested")
-                        ingestionStatusCode = aCompletion.status
-                      case StatusCodes.Accepted =>
-                        logger.warn("PublishApi.Ingest.onComplete: some metrics rejected")
-                        ingestionStatusCode = aCompletion.status
-                      case _ =>
-                        logger.warn("PublishApi.Ingest.onComplete: unrecognized response from publishactor")
-                        ingestionStatusCode = StatusCodes.BadRequest
-                    }
-                    logger.info("PublishApi.Ingest.onComplete: " + aCompletion)
-                    var aResponse: HttpResponse = aCompletion.asInstanceOf[HttpResponse]
-                    logger.info("PublishApi.Ingest.onComplete: onComplete response is " + aResponse)
-                }
-              }
-            }
-            // now send the response, the futures are done
-            logger.info("PublishApi.Ingest: Sending response..." + ingestionStatusCode)
-            ctx.responder ! HttpResponse(ingestionStatusCode)
           }
         case None =>
           throw new IllegalArgumentException("empty request body")

@@ -80,50 +80,38 @@ class TagsRequestActor extends Actor with ActorLogging {
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
+          // master future to pull together all shard data
+          val master = futureSequence.map { 
+            responses =>
+              responses.foreach { aResponse => 
+                results = aResponse :: results
+              }
+          }
+          master onComplete {
+            case l => {
+              // merge results
+              var data = List[Tag]()
+              results.foreach {
+                aDataResponse =>
+                  // the response has a list of strings, iterate those and append to drData
+                  aDataResponse.vs.foreach {
+                    aValue =>
+                      data = aValue :: data
+                  }
+                  // reduce to distinct values
+                  data = data.distinct
+              }
+              var mergedData = TagListResponse(data)
+              log.info("Sharded ListTagsRequest.master.onComplete: All done, merged data is: " + mergedData)
+              // send the result back to ourself, so we can re-use the non-clustered case statements
+              self ! mergedData
+            }
+          }
           // best effort - if there's a failure on an ask, discard it
-          futureSequence onFailure {
+          master onFailure {
             case l => {
-              log.warning("Sharded ListTagsRequest: onFailure: " + l)
+              log.warning("Sharded ListTagsRequest.master.onFailure: " + l)
             }
-          }
-          // not processing here
-          futureSequence onSuccess {
-            case l => {
-              l.foreach { i =>
-                 log.info("Sharded ListTagsRequest: onSuccess future is " + i)
-              }
-            }
-          }
-          // just use the completed responses
-          futureSequence onComplete {
-            case l => {
-              l.foreach { i =>
-                log.info("Sharded ListTagsRequest: oncomplete response: " + i)
-                i.foreach {
-                  x =>
-                    log.info("Sharded ListTagsRequest: aresponse: " + x)
-                    var aresult: TagListResponse = x.asInstanceOf[TagListResponse]
-                    log.info("Sharded ListTagsRequest: onComplete future is " + aresult)
-                    results = aresult :: results
-                }
-              }
-            }
-            // merge results
-            var data = List[Tag]()
-            results.foreach {
-              aDataResponse =>
-                // the response has a list of strings, iterate those and append to drData
-                aDataResponse.vs.foreach {
-                  aValue =>
-                    data = aValue :: data
-                }
-                // reduce to distinct values
-                data = data.distinct
-            }
-            var mergedData = TagListResponse(data)
-            log.info("Sharded ListTagsRequest: All done, merged data is: " + mergedData)
-            // send the result back to ourself, so we can re-use the non-clustered case statements
-            self ! mergedData
           }
         case x: ListValuesRequest =>
           var z = tq.query.get
@@ -140,50 +128,39 @@ class TagsRequestActor extends Actor with ActorLogging {
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
+          // this is a new future that will pull together all of the shard requests
+          // this is nonblocking since it is itself a future
+          val master = futureSequence.map { 
+            responses =>
+              responses.foreach { aResponse => 
+                results = aResponse :: results
+              }
+          }
           // best effort - if there's a failure on an ask, discard it
-          futureSequence onFailure {
+          master onFailure {
             case l => {
-              log.warning("Sharded ListValuesRequest: onFailure: " + l)
+              log.warning("Sharded ListValuesRequest.master.onFailure: " + l)
             }
           }
-          // not processing here
-          futureSequence onSuccess {
+          master onComplete {
             case l => {
-              l.foreach { i =>
-                 log.info("Sharded ListValuesRequest: onSuccess future is " + i)
+              // merge results
+              var data = List[String]()
+              results.foreach {
+                aDataResponse =>
+                  // the response has a list of strings, iterate those and append to drData
+                  aDataResponse.vs.foreach {
+                    aValue =>
+                      data = aValue :: data
+                  }
+                  // reduce to distinct values
+                  data = data.distinct
               }
+              var mergedData = ValueListResponse(data)
+              log.info("Sharded ListValuesRequest.master.onComplete: All done, merged data is: " + mergedData)
+              // send the result back to ourself, so we can re-use the non-clustered case statements
+              self ! mergedData
             }
-          }
-          // just use the completed responses
-          futureSequence onComplete {
-            case l => {
-              l.foreach { i =>
-                log.info("Sharded ListValuesRequest: oncomplete response: " + i)
-                i.foreach {
-                  x =>
-                    log.info("Sharded ListValuesRequest: aresponse: " + x)
-                    var aresult: ValueListResponse = x.asInstanceOf[ValueListResponse]
-                    log.info("Sharded ListValuesRequest: onComplete future is " + aresult)
-                    results = aresult :: results
-                }
-              }
-            }
-            // merge results
-            var data = List[String]()
-            results.foreach {
-              aDataResponse =>
-                // the response has a list of strings, iterate those and append to drData
-                aDataResponse.vs.foreach {
-                  aValue =>
-                    data = aValue :: data
-                }
-                // reduce to distinct values
-                data = data.distinct
-            }
-            var mergedData = ValueListResponse(data)
-            log.info("Sharded ListValuesRequest: All done, merged data is: " + mergedData)
-            // send the result back to ourself, so we can re-use the non-clustered case statements
-            self ! mergedData
           }
         case x: ListKeysRequest =>
           var z = tq.query.get
@@ -200,50 +177,38 @@ class TagsRequestActor extends Actor with ActorLogging {
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
+          // master future to pull together all shard data
+          val master = futureSequence.map { 
+            responses =>
+              responses.foreach { aResponse => 
+                results = aResponse :: results
+              }
+          }
+          master onComplete {
+            case l => {
+              // merge results
+              var data = List[String]()
+              results.foreach {
+                aDataResponse =>
+                  // the response has a list of strings, iterate those and append to drData
+                  aDataResponse.vs.foreach {
+                    aValue =>
+                      data = aValue :: data
+                  }
+                  // reduce to distinct values
+                  data = data.distinct
+              }
+              var mergedData = KeyListResponse(data)
+              log.info("Sharded ListKeysRequest.master.onComplete: All done, merged data is: " + mergedData)
+              // send the result back to ourself, so we can re-use the non-clustered case statements
+              self ! mergedData
+            }
+          }
           // best effort - if there's a failure on an ask, discard it
-          futureSequence onFailure {
+          master onFailure {
             case l => {
-              log.warning("Sharded ListKeysRequest: onFailure: " + l)
+              log.warning("Sharded ListKeysRequest.master.onFailure: " + l)
             }
-          }
-          // not processing here
-          futureSequence onSuccess {
-            case l => {
-              l.foreach { i =>
-                 log.info("Sharded ListKeysRequest: onSuccess future is " + i)
-              }
-            }
-          }
-          // just use the completed responses
-          futureSequence onComplete {
-            case l => {
-              l.foreach { i =>
-                log.info("Sharded ListKeysRequest: oncomplete response: " + i)
-                i.foreach {
-                  x =>
-                    log.info("Sharded ListKeysRequest: aresponse: " + x)
-                    var aresult: KeyListResponse = x.asInstanceOf[KeyListResponse]
-                    log.info("Sharded ListKeysRequest: onComplete future is " + aresult)
-                    results = aresult :: results
-                }
-              }
-            }
-            // merge results
-            var data = List[String]()
-            results.foreach {
-              aDataResponse =>
-                // the response has a list of strings, iterate those and append to drData
-                aDataResponse.vs.foreach {
-                  aValue =>
-                    data = aValue :: data
-                }
-                // reduce to distinct values
-                data = data.distinct
-            }
-            var mergedData = KeyListResponse(data)
-            log.info("Sharded ListKeysRequest: All done, merged data is: " + mergedData)
-            // send the result back to ourself, so we can re-use the non-clustered case statements
-            self ! mergedData
           }
           
         case _ => log.info("error Unknown class")
