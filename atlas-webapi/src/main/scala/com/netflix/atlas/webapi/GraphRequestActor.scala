@@ -36,10 +36,11 @@ import spray.http.MediaTypes._
 import spray.http._
 import akka.cluster.sharding.ShardRegion
 import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
-import scala.concurrent.Await
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.duration._
+import scala.concurrent._
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor with ActorLogging {
 
@@ -72,67 +73,92 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
     case req: Request =>
       request = req
       responseRef = sender()
-      log.info("GetShardedData: request is " + req)
+      log.info("GraphRequestActor.req: request is " + req)
       // ask all shards
       var results: List[DataResponse] = List()
       var dbRequest = req.toDbRequest
-      log.info("GetShardedData: dbrequest is " + dbRequest)
-      var shardId: Int = 0
-      for (shardId <- 0 to numberOfShards -1) {
-        log.info("Sharded GetShardedData Request: Asking shard# " + shardId)
-        val future = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(5.seconds)
-        log.info("Sharded GetShardedData Request: waiting....")
-        // TODO: Handle exceptions
-        var aresult: DataResponse = Await.result(future, 5.seconds).asInstanceOf[DataResponse]
-        log.info("Sharded GetShardedData Request: future response is " + aresult)
-        results = aresult :: results
+      log.info("GraphRequestActor.req: dbrequest is " + dbRequest)
+      // ask all shards
+      val shardList = List.range(0,numberOfShards)
+      val futureMap = shardList.map {
+        shardId =>
+          log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
+          val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
+          aFuture
       }
-      log.info("result as list is " + results)
-      // now merge the results
-      log.info("All done, merging results")
-      log.info("Merging...")
-      var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
-      results.foreach { aDataResponse =>
-        aDataResponse.ts.foreach{ item =>
-          // check the size of the List in the Map
-          var k = item._1
-          var v = item._2
-          log.info("v is " + v)
-          
-          if (v.size > 0) {
-            log.info("this key/value was NOT empty")
-            // need to purge anything with NO_DATA inside
-            var validData = List[TimeSeries]()
-            v.foreach { ts =>
-              if (ts.label.equals("NO DATA")) {
-                // no data detected, not valid
-                log.info("NO_DATA detected, skipping this result")
-              }
-              else {
-                // append
-                log.info("Appending valid data")
-                validData = ts:: validData
-              }
-            }
-            if (validData.size > 0) {
-              // reduce to distinct values
-              validData = validData.distinct
-              log.info("Valid Data is " + validData)
-              var newMap = Map[DataExpr,List[TimeSeries]](k ->validData)
-              log.info("*****newMap is " + newMap)
-              log.info("******mergedData was " + mergedData)
-              mergedData = mergedData ++ newMap
-              log.info("******mergedData is now " + mergedData)
-            }
+      val futureSequence = Future.sequence(futureMap)
+      // best effort - if there's a failure on an ask, discard it
+      futureSequence onFailure {
+        case l => {
+          log.warning("GraphRequestActor.req future: onFailure: " + l)
+        }
+      }
+      // not processing here
+      futureSequence onSuccess {
+        case l => {
+          l.foreach { i =>
+            log.info("GraphRequestActor.req  future: onSuccess future is " + i)
           }
         }
       }
-      log.info("mergedData is " + mergedData)
-
-      sendImage(mergedData.toMap)
+      // just use the completed responses
+      futureSequence onComplete {
+        case l => {
+          l.foreach {
+            i =>
+              log.info("GraphRequestActor.req future: onComplete response: " + i)
+              i.foreach {
+                x =>
+                  log.info("GraphRequestActor.req: Sharded Response: " + x)
+                  var aresult: DataResponse = x.asInstanceOf[DataResponse]
+                  log.info("GraphRequestActor.req: onComplete result: " + aresult)
+                  results = aresult :: results
+              }
+          }
+        }
+        log.info("GraphRequestActor.req: result as list is " + results)
+        // now merge the results
+        log.info("GraphRequestActor.req: Merging...")
+        var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
+        results.foreach { aDataResponse =>
+          aDataResponse.ts.foreach{ item =>
+            // check the size of the List in the Map
+            var k = item._1
+            var v = item._2
+            log.info("v is " + v)
+            if (v.size > 0) {
+              log.info("GraphRequestActor.req: this key/value was NOT empty")
+              // need to purge anything with NO_DATA inside
+              var validData = List[TimeSeries]()
+              v.foreach { ts =>
+                if (ts.label.equals("NO DATA")) {
+                  // no data detected, not valid
+                  log.info("GraphRequestActor.req: NO_DATA detected, skipping this result")
+                }
+                else {
+                  // append
+                  log.info("GraphRequestActor.req: Appending valid data")
+                  validData = ts:: validData
+                }
+              }
+              if (validData.size > 0) {
+                // reduce to distinct values
+                validData = validData.distinct
+                log.info("GraphRequestActor.req: Valid Data is " + validData)
+                var newMap = Map[DataExpr,List[TimeSeries]](k ->validData)
+                log.info("GraphRequestActor.req: *****newMap is " + newMap)
+                log.info("GraphRequestActor.req: ******mergedData was " + mergedData)
+                mergedData = mergedData ++ newMap
+                log.info("GraphRequestActor.req: ******mergedData is now " + mergedData)
+              }
+            }
+          }
+        }
+        log.info("GraphRequestActor.req: mergedData is " + mergedData)
+        sendImage(mergedData.toMap)
+      }
     case DataResponse(data) =>
-      log.info("Got DataResponse...")
-      log.info("Data is " + data)
+      log.debug("Data is " + data)
       sendImage(data)
     case ev: Http.ConnectionClosed =>
       log.info("connection closed")
