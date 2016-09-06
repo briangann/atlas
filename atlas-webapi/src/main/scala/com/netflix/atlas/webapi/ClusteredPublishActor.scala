@@ -84,7 +84,6 @@ case class ClusterPublishState(events: List[String] = Nil) {
 
 
 class ClusteredPublishActor(registry: Registry, db: Database) extends PersistentActor with ActorLogging {
-  import ShardRegion.Passivate
   import com.netflix.atlas.webapi.PublishApi._
   import ClusteredPublishActor._
  
@@ -127,12 +126,12 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
  
   val receiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
-      updateState(evt)
+      //updateState(evt)
       log.info("I should be putting stuff back into the memory database...")
       log.info("evt data is " + evt.data)
-      var myDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](evt.data)
-      log.info("Mydatapoints is " + myDatapoints.toString())
-      update(myDatapoints)
+      //var myDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](evt.data)
+      //log.info("Mydatapoints is " + myDatapoints.toString())
+      //update(myDatapoints)
     case SnapshotOffer(metadata, snapshot: ClusterPublishState) =>
       log.info("Lets try to use a snapshot... with size " + snapshot.size)
       state = snapshot
@@ -143,16 +142,19 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       }
       log.info("ok, we used a snapshot... when recovery is completed, make sure to populate memorydb!")
     case RecoveryCompleted =>
-      log.info("recovery completed... now populate the memorydb")
+      //log.info("recovery completed...")
+      /* disable, this should not happen here,
+       *  see http://stackoverflow.com/questions/36649466/akka-persist-on-recovery-completed-updates-state-after-first-message
+       */
       // we also need to load up our memory database with the snapshot data
-      state.events.foreach {
+      /*state.events.foreach {
         datapoint =>
           var recoverDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](datapoint)
           // add them to memory db
           if (recoverDatapoints.size > 0) {
             update(recoverDatapoints)
           }
-      }
+      }*/
       // we used a snapshot, get its size
       lastSnapshotSize = state.size
 
@@ -164,25 +166,25 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     case IngestTaggedItem(id,req) =>
       req match {
         case PublishRequest(Nil, Nil) =>
-          log.info("IngestTaggedItem:PublishRequest badrequest")
+          log.warning("IngestTaggedItem:PublishRequest badrequest")
           DiagnosticMessage.sendError(sender(), StatusCodes.BadRequest, "empty payload")
         case PublishRequest(Nil, failures) =>
-          log.info("IngestTaggedItem:PublishRequest onlyfailures")
+          log.warning("IngestTaggedItem:PublishRequest onlyfailures")
           updateStats(failures)
           val msg = FailureMessage.error(failures)
           sendError(sender(), StatusCodes.BadRequest, msg)
         case PublishRequest(values, Nil) =>
-          log.info("IngestTaggedItem:PublishRequest all good")
+          //log.debug("IngestTaggedItem:PublishRequest all good")
           update(values)
           sender() ! HttpResponse(StatusCodes.OK)
         case PublishRequest(values, failures) =>
-          log.info("IngestTaggedItem:PublishRequest partial failures")
+          log.debug("IngestTaggedItem:PublishRequest partial failures")
           update(values)
           updateStats(failures)
           val msg = FailureMessage.partial(failures)
           sendError(sender(), StatusCodes.Accepted, msg)
         case _ =>
-          log.info("IngestTaggedItem: unknown request - " + req)
+          log.warning("IngestTaggedItem: unknown request - " + req)
       }
     case "snap"  =>
       log.info("Command is to take a snapshot...")

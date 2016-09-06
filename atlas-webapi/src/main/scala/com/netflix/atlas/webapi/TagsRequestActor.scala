@@ -69,13 +69,13 @@ class TagsRequestActor extends Actor with ActorLogging {
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          log.debug("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
+          //log.debug("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[TagListResponse] = List()
           val shardList = List.range(0,numberOfShards)
           val futureMap = shardList.map {
             shardId =>
-              log.info("Sharded ListTagsRequest: asking shard: " + shardId)
+              //log.info("Sharded ListTagsRequest: asking shard: " + shardId)
               val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTags(shardId, tq))(10.seconds).mapTo[TagListResponse]
               aFuture
           }
@@ -117,13 +117,13 @@ class TagsRequestActor extends Actor with ActorLogging {
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          log.debug("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
+          //log.debug("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[ValueListResponse] = List()
           val shardList = List.range(0,numberOfShards)
           val futureMap = shardList.map {
             shardId =>
-              log.info("Sharded ListValuesRequest: asking shard: " + shardId)
+              //log.info("Sharded ListValuesRequest: asking shard: " + shardId)
               val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTagValues(shardId, tq))(10.seconds).mapTo[ValueListResponse]
               aFuture
           }
@@ -166,13 +166,13 @@ class TagsRequestActor extends Actor with ActorLogging {
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          log.debug("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
+          //log.debug("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[KeyListResponse] = List()
           val shardList = List.range(0,numberOfShards)
           val futureMap = shardList.map {
             shardId =>
-              log.info("Sharded ListKeysRequest: asking shard: " + shardId)
+              //log.info("Sharded ListKeysRequest: asking shard: " + shardId)
               val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTagKeys(shardId, tq))(10.seconds).mapTo[KeyListResponse]
               aFuture
           }

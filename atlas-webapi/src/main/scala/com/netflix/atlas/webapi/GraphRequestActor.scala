@@ -73,16 +73,16 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
     case req: Request =>
       request = req
       responseRef = sender()
-      log.info("GraphRequestActor.req: request is " + req)
+      //log.info("GraphRequestActor.req: request is " + req)
       // ask all shards
       var results: List[DataResponse] = List()
       var dbRequest = req.toDbRequest
-      log.info("GraphRequestActor.req: dbrequest is " + dbRequest)
+      //log.info("GraphRequestActor.req: dbrequest is " + dbRequest)
       // ask all shards
       val shardList = List.range(0,numberOfShards)
       val futureMap = shardList.map {
         shardId =>
-          log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
+          //log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
           val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
           aFuture
       }
@@ -103,11 +103,11 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       // merge the results and send back the data
       master onComplete{
         case l => {
-          log.debug("GraphRequestActor.req: master onComplete entered")
+          //log.debug("GraphRequestActor.req: master onComplete entered")
           // we should have all responses now
           log.debug("GraphRequestActor.req: master: result as list is " + results)
           // now merge the results
-          log.debug("GraphRequestActor.req: master: Merging...")
+          //log.debug("GraphRequestActor.req: master: Merging...")
           var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
           results.foreach { aDataResponse =>
             aDataResponse.ts.foreach{ item =>

@@ -54,16 +54,16 @@ object ClusteredDatabaseActor{
   case class GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery)
   val extractShardId: ShardRegion.ExtractShardId = msg => msg match {
     case GetShardedData(shardId: Int, req: DataRequest) =>
-      logger.info("************** GetShardedData explicit shardid = " + shardId)
+      //logger.info("************** GetShardedData explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
     case GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
-      logger.info("************** GetShardedTags explicit shardid = " + shardId)
+      //logger.info("************** GetShardedTags explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
     case GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
-      logger.info("************** GetShardedTagValues explicit shardid = " + shardId)
+      //logger.info("************** GetShardedTagValues explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()     
     case GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
-      logger.info("************** GetShardedTagKeys explicit shardid = " + shardId)
+      //logger.info("************** GetShardedTagKeys explicit shardid = " + shardId)
       BigInteger.valueOf(shardId).toString()      
   }
   val extractEntityId: ShardRegion.ExtractEntityId = {
@@ -90,7 +90,6 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
   import ClusteredDatabaseActor._
   import akka.cluster._
   import akka.cluster.ClusterEvent._
-  //import ShardRegion.Passivate
   import com.netflix.atlas.webapi.GraphApi._
   import com.netflix.atlas.webapi.TagsApi._
   import scala.concurrent.duration._
@@ -108,41 +107,44 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
     state.size
     
   val receiveRecover: Receive = {
-    case evt: ClusterDatabaseEvt                          => updateState(evt)
+    case evt: ClusterDatabaseEvt =>
+      //updateState(evt)
+      // do nothing
     case SnapshotOffer(_, snapshot: ClusterDatabaseState) => state = snapshot
   }
   
   val receiveCommand: Receive = {
     case ClusterDatabaseCmd(data) =>
-      persist(ClusterDatabaseEvt(s"${data}-${numEvents}"))(updateState)
-      persist(ClusterDatabaseEvt(s"${data}-${numEvents + 1}")) { event =>
-        updateState(event)
-        context.system.eventStream.publish(event)
-      }
+      // disabled
+      //persist(ClusterDatabaseEvt(s"${data}-${numEvents}"))(updateState)
+      //persist(ClusterDatabaseEvt(s"${data}-${numEvents + 1}")) { event =>
+      //  updateState(event)
+      //  context.system.eventStream.publish(event)
+      //}
     case "snap"  => saveSnapshot(state)
     case ShutdownClusteredDatabase =>
       context.stop(self)
     case ListTagsRequest(tq)    =>
-      log.info("ClusteredDatabaseActor received list tags request")
+      log.debug("ClusteredDatabaseActor received list tags request")
       sender() ! TagListResponse(db.index.findTags(tq))
     case ListKeysRequest(tq)    => sender() ! KeyListResponse(db.index.findKeys(tq).map(_.name))
     case ListValuesRequest(tq)  => sender() ! ValueListResponse(db.index.findValues(tq))
     case GetShardedData(shardId: Int, req: DataRequest) =>
-       log.info("GetShardedData sending back OK")
+       //log.debug("GetShardedData sending back OK")
        var resp = executeDataRequest(req)
-       log.info("GetShardedData resp is " + resp)
+       //log.debug("GetShardedData resp is " + resp)
        sender() ! resp
     case GetShardedTags(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
       var resp = TagListResponse(db.index.findTags(tq))
-       log.info("GetShardedTags resp is " + resp)
+       //log.debug("GetShardedTags resp is " + resp)
        sender() ! resp
     case GetShardedTagKeys(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
       var resp = KeyListResponse(db.index.findKeys(tq).map(_.name))
-       log.info("GetShardedTags resp is " + resp)
+       //log.debug("GetShardedTags resp is " + resp)
        sender() ! resp
     case GetShardedTagValues(shardId: Int, tq: com.netflix.atlas.core.index.TagQuery) =>
       var resp = ValueListResponse(db.index.findValues(tq))
-       log.info("GetShardedTagValues resp is " + resp)
+       //log.debug("GetShardedTagValues resp is " + resp)
        sender() ! resp
   }
   

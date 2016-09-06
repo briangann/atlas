@@ -96,10 +96,10 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
             x =>
               var ti = TaggedItem.computeId(x.tags)
               var id = x.idString
-              logger.info("ti is " + ti + " id is " + id)
+              //logger.info("ti is " + ti + " id is " + id)
               var newList: List[Datapoint] = List(x)
               val aReq = validate(newList)
-              logger.info(s"PublishApi.Ingest future will send request to " + publishRef.toString())
+              //logger.info(s"PublishApi.Ingest future will send request to " + publishRef.toString())
               // use a future to send the data
               val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(15.seconds).mapTo[HttpResponse]
               aFuture
@@ -116,7 +116,7 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
                     logger.info("PublishApi.Ingest.master.onSuccess: request was bad")
                     ingestionStatusCode = aResponse.status
                   case StatusCodes.OK =>
-                    logger.info("PublishApi.Ingest.master.onSuccess: all metrics ingested")
+                    //logger.info("PublishApi.Ingest.master.onSuccess: all metrics ingested")
                     ingestionStatusCode = aResponse.status
                   case StatusCodes.Accepted =>
                     logger.warn("PublishApi.Ingest.master.onSuccess: some metrics rejected")
@@ -131,18 +131,18 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
             case l => { 
               //logger.info("PublishApi.Ingest.master.onComplete entered")
               var aResponse = HttpResponse(ingestionStatusCode)
-              logger.info("PublishApi.Ingest.master.onComplete: onComplete response is " + aResponse)
+              //logger.info("PublishApi.Ingest.master.onComplete: onComplete response is " + aResponse)
               // now send the response, the futures are done
-              logger.info("PublishApi.Ingest.master.onComplete: Sending response..." + ingestionStatusCode)
+              //logger.info("PublishApi.Ingest.master.onComplete: Sending response..." + ingestionStatusCode)
               ctx.responder ! HttpResponse(ingestionStatusCode)
             }
           }
           // best effort - if there's a failure on an ask, discard it
-          master onFailure {
-            case aFailure => {
-              logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
-            }
-          }
+          //master onFailure {
+          // case aFailure => {
+          //    logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
+          //  }
+          //}
         case None =>
           throw new IllegalArgumentException("empty request body")
       }
