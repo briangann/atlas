@@ -36,3 +36,5 @@ out
 .settings
 .cache-main
 .cache-tests
+
+bin/
