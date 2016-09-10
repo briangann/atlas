@@ -47,6 +47,8 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
     
     config.getConfigList("atlas.akka.atlascluster.cluster").asScala.foreach { cfg =>
       var name = cfg.getString("name")
+      var proxy: Boolean = false
+      proxy = cfg.getBoolean("proxy")
       val cls = Class.forName(cfg.getString("class"))
       var clusterExtractEntityId: akka.cluster.sharding.ShardRegion.ExtractEntityId = null
       
@@ -68,14 +70,26 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
         case _ => knownActor = false
       }
       if (knownActor) {
-        ClusterSharding(system).start(
-          typeName = name,
-          entityProps = Props(classFactory.newInstance[Actor](cls)).withMailbox("cluster-mailbox"),
-          settings = ClusterShardingSettings(system),
-          extractShardId = clusterExtractShardId,
-          extractEntityId = clusterExtractEntityId
-        )
+        if (proxy) {
+          logger.info(s"\n\n*******************Started as PROXY for Actor ${cls.getName} *******************")       
+          ClusterSharding(system).startProxy(
+            typeName = name,
+            role = Option("backend"),
+            extractShardId = clusterExtractShardId,
+            extractEntityId = clusterExtractEntityId
+          )
+        }
+        else {
+          ClusterSharding(system).start(
+            typeName = name,
+            entityProps = Props(classFactory.newInstance[Actor](cls)).withMailbox("cluster-mailbox"),
+            settings = ClusterShardingSettings(system),
+            extractShardId = clusterExtractShardId,
+            extractEntityId = clusterExtractEntityId
+          )
+        }
 
+        
         val decider = ClusterSharding(system).shardRegion(name)      
         logger.info(s"\n\n*******************Created Actor in the new Cluster Actor with region ${name}*******************")      
       }
