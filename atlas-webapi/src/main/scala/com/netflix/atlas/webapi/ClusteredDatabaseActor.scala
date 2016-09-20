@@ -125,7 +125,7 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
     case ShutdownClusteredDatabase =>
       context.stop(self)
     case ListTagsRequest(tq)    =>
-      log.debug("ClusteredDatabaseActor received list tags request")
+      //log.debug("ClusteredDatabaseActor received list tags request")
       sender() ! TagListResponse(db.index.findTags(tq))
     case ListKeysRequest(tq)    => sender() ! KeyListResponse(db.index.findKeys(tq).map(_.name))
     case ListValuesRequest(tq)  => sender() ! ValueListResponse(db.index.findValues(tq))

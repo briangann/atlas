@@ -102,7 +102,7 @@ class TagsRequestActor extends Actor with ActorLogging {
                   data = data.distinct
               }
               var mergedData = TagListResponse(data)
-              log.info("Sharded ListTagsRequest.master.onComplete: All done, merged data is: " + mergedData)
+              //log.debug("Sharded ListTagsRequest.master.onComplete: All done, merged data is: " + mergedData)
               // send the result back to ourself, so we can re-use the non-clustered case statements
               self ! mergedData
             }
@@ -199,7 +199,7 @@ class TagsRequestActor extends Actor with ActorLogging {
                   data = data.distinct
               }
               var mergedData = KeyListResponse(data)
-              log.info("Sharded ListKeysRequest.master.onComplete: All done, merged data is: " + mergedData)
+              //log.info("Sharded ListKeysRequest.master.onComplete: All done, merged data is: " + mergedData)
               // send the result back to ourself, so we can re-use the non-clustered case statements
               self ! mergedData
             }

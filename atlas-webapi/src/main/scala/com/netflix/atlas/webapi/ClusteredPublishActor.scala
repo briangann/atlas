@@ -178,7 +178,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           update(values)
           sender() ! HttpResponse(StatusCodes.OK)
         case PublishRequest(values, failures) =>
-          log.debug("IngestTaggedItem:PublishRequest partial failures")
+          log.warning("IngestTaggedItem:PublishRequest partial failures")
           update(values)
           updateStats(failures)
           val msg = FailureMessage.partial(failures)
