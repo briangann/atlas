@@ -114,7 +114,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
               // check the size of the List in the Map
               var k = item._1
               var v = item._2
-              //log.info("v is " + v)
+              log.debug("DataResponse key is " + k)
               if (v.size > 0) {
                 //log.info("GraphRequestActor.req: master: this key/value was NOT empty")
                 // need to purge anything with NO_DATA inside
@@ -122,28 +122,45 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                 v.foreach { ts =>
                   if (ts.label.equals("NO DATA")) {
                     // no data detected, not valid
-                    //log.info("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
+                    log.debug("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
                   }
                   else {
                     // append
-                    //log.info("GraphRequestActor.req: master: Appending valid data")
-                    validData = ts:: validData
+                    log.debug("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
+                    //ts.data.
+                    validData = ts :: validData
                   }
                 }
                 if (validData.size > 0) {
-                  // reduce to distinct values
-                  validData = validData.distinct
-                  //log.info("GraphRequestActor.req: master: Valid Data is " + validData)
-                  var newMap = Map[DataExpr,List[TimeSeries]](k ->validData)
-                  //log.info("GraphRequestActor.req: master: *****newMap is " + newMap)
-                  //log.info("GraphRequestActor.req: master: ******mergedData was " + mergedData)
-                  mergedData = mergedData ++ newMap
-                  //log.info("GraphRequestActor.req: master: ******mergedData is now " + mergedData)
+                  log.debug("GraphRequestActor.req: master: Valid Data is " + validData)
+                  log.debug("GraphRequestActor.req: master: ******mergedData was " + mergedData)
+                  // check if the key exist, if it does, then blend the new data to the existing key's data
+                  if (mergedData.contains(k)) {
+                    log.debug("GraphRequestActor.req: master: ****** BLEND dataexpr key exists")
+                    // get the time series for the matching data expression
+                    // this will be a list, but with only a single time sequence inside
+                    var currentTimeSeries = mergedData.get(k).get.head;
+                    log.debug("GraphRequestActor.req: master: ****** BLEND current timeseq is " + currentTimeSeries)
+                    // blend old series with new data
+                    currentTimeSeries = currentTimeSeries.blend(validData.head)
+                    // the result of the blend is a BinaryOpTimeSeq, which appears to work fine
+                    log.debug("GraphRequestActor.req: master: ****** BLEND current timeseq after blend is " + currentTimeSeries)
+                    // convert to a list (can optimize here and just go straight to a list at the merge)
+                    var blendedSeries = List[TimeSeries](currentTimeSeries)
+                    log.debug("GraphRequestActor.req: master: ****** BLEND blended series list is " + blendedSeries)
+                    // overwrite the old data
+                    mergedData.put(k,blendedSeries)
+                    log.debug("GraphRequestActor.req: master: ****** BLEND mergedData is now " + mergedData)
+                  } else {
+                    // just add the new key and valid data
+                    log.debug("GraphRequestActor.req: master: ****** adding new key to mergedData")
+                    mergedData = mergedData ++ Map[DataExpr,List[TimeSeries]](k ->validData)
+                  }
                 }
               }
             }
           }
-          log.info("GraphRequestActor.req: master: mergedData is " + mergedData)
+          log.debug("GraphRequestActor.req: master: mergedData is " + mergedData)
           sendImage(mergedData.toMap)
         }
       }
