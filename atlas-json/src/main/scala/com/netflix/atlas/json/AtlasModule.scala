@@ -13,11 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.netflix.atlas.core.model
+package com.netflix.atlas.json
 
+import com.fasterxml.jackson.core.Version
+import com.fasterxml.jackson.databind.Module
+import com.fasterxml.jackson.databind.Module.SetupContext
 
-case class ResultSet(
-    expr: TimeSeriesExpr,
-    data: List[TimeSeries] = Nil,
-    state: Map[StatefulExpr, Any] = Map.empty,
-    messages: List[String] = Nil)
+/**
+  * Adds custom serializers and deserializers for our use cases.
+  */
+private[json] class AtlasModule extends Module {
+  override def getModuleName: String = "atlas"
+
+  override def setupModule(context: SetupContext): Unit = {
+    context.addDeserializers(new CaseClassDeserializers)
+  }
+
+  override def version(): Version = Version.unknownVersion()
+}
