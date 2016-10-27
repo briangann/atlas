@@ -82,7 +82,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       val shardList = List.range(0,numberOfShards)
       val futureMap = shardList.map {
         shardId =>
-          //log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
+          log.debug("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
           val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
           aFuture
       }
@@ -125,6 +125,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                     log.debug("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
                   }
                   else {
+                    log.debug("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
                     // append
                     log.debug("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
                     //ts.data.

@@ -49,6 +49,9 @@ import spray.http.MediaTypes
 import spray.http.StatusCode
 import spray.http.StatusCodes
 
+import java.math.BigInteger
+
+
 import scala.concurrent.ExecutionContext.Implicits.global
 
 class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val system: ActorSystem) extends WebApi {
@@ -94,12 +97,30 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
           // "worst" result of the ingestion process as the response
           var futureMap = data.map {
             x =>
+              // start with computing the ID based on all tags
               var ti = TaggedItem.computeId(x.tags)
-              var id = x.idString
-              //logger.info("ti is " + ti + " id is " + id)
+              // workaround...
+              // the shardid is computed from the name of the metric only, this forces a metric to always end up on the same shard
+              x.tags.foreach {
+                aTag =>
+                  if (aTag._1 == "name") {
+                    // found name, get its value
+                    var aTagName = aTag._2
+                    // create a new Map
+                    var justName = Map[String,String](aTag._1  -> aTag._2 )
+                    // now compute the shard id
+                    ti = TaggedItem.computeId(justName)
+                  }
+              }
+              // alternative method is to compute from all of the tags, which spreads the time series across shards, but retrieval/merging becomes
+              // problematic - use simple method for now
+              // var ti = TaggedItem.computeId(x.tags)
+              //var id = x.idString
+              
+              //logger.info("PublishApi.Ingest: taggedItem ID: " + ti)
               var newList: List[Datapoint] = List(x)
               val aReq = validate(newList)
-              //logger.info(s"PublishApi.Ingest future will send request to " + publishRef.toString())
+              //logger.debug(s"PublishApi.Ingest future will send request to " + publishRef.toString())
               // use a future to send the data
               val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(15.seconds).mapTo[HttpResponse]
               aFuture

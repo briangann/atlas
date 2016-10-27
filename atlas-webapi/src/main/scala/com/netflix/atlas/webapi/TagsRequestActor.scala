@@ -68,7 +68,6 @@ class TagsRequestActor extends Actor with ActorLogging {
         case x: ListTagsRequest =>
           var z = tq.query.get
           val pairs = Query.tags(z)
-          var ti = TaggedItem.computeId(pairs)
           //log.debug("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[TagListResponse] = List()
