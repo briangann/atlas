@@ -108,19 +108,22 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
     
   val receiveRecover: Receive = {
     case evt: ClusterDatabaseEvt =>
+      log.info("ClusteredDatabaseActor: receiveRecover for evt ClusterDatabaseEvt entered")
+      //var myDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](evt.data)
+      //log.info("ClusteredDatabaseActor: Journaled Datapoints " + myDatapoints.toString())
       //updateState(evt)
-      // do nothing
     case SnapshotOffer(_, snapshot: ClusterDatabaseState) => state = snapshot
   }
   
   val receiveCommand: Receive = {
     case ClusterDatabaseCmd(data) =>
-      // disabled
+      log.info("ClusteredDatabaseActor: ClusterDatabaseCmd persisting entered")
       //persist(ClusterDatabaseEvt(s"${data}-${numEvents}"))(updateState)
       //persist(ClusterDatabaseEvt(s"${data}-${numEvents + 1}")) { event =>
       //  updateState(event)
       //  context.system.eventStream.publish(event)
       //}
+      log.info("ClusteredDatabaseActor: ClusterDatabaseCmd persisting finished")
     case "snap"  => saveSnapshot(state)
     case ShutdownClusteredDatabase =>
       context.stop(self)

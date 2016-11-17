@@ -159,11 +159,11 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
             }
           }
           // best effort - if there's a failure on an ask, discard it
-          //master onFailure {
-          // case aFailure => {
-          //    logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
-          //  }
-          //}
+          master onFailure {
+           case aFailure => {
+              logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
+            }
+          }
         case None =>
           throw new IllegalArgumentException("empty request body")
       }

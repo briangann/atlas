@@ -10,7 +10,7 @@
 #
 
 # URL, this is assuming settings in conf/memory.conf
-url="http://localhost:7101/api/v1/publish"
+url="http://127.0.0.1:9090/api/v1/publish"
 
 # How often to send data, typically a little bit more frequent than the step
 frequency=1
