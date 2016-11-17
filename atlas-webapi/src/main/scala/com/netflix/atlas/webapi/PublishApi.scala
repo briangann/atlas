@@ -54,6 +54,7 @@ import java.math.BigInteger
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
+
 class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val system: ActorSystem) extends WebApi {
 
   import com.netflix.atlas.webapi.PublishApi._
@@ -122,7 +123,7 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
               val aReq = validate(newList)
               //logger.debug(s"PublishApi.Ingest future will send request to " + publishRef.toString())
               // use a future to send the data
-              val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(15.seconds).mapTo[HttpResponse]
+              val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds).mapTo[HttpResponse]
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
@@ -162,6 +163,11 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
           master onFailure {
            case aFailure => {
               logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
+              // queue this request and try again, let the sender know we'll process later
+              ctx.responder ! HttpResponse(StatusCodes.Processing)
+              // ok lets try again
+              logger.warn("PublishApi.Ingest.master.onFailure: Requeue")
+              handleReq(ctx)
             }
           }
         case None =>

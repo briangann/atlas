@@ -21,7 +21,7 @@ node=$(hostname)
 while true; do
   # Times are expected to be in milliseconds since the epoch
   timestamp="$(date +%s)000"
-  curl -s $url \
+  curl -m 30 -s $url \
     -w"  $(date +%Y-%m-%dT%H:%M:%S)\t%{http_code}\t%{time_total}\n" \
     -H'Content-Type: application/json' \
     --data-binary "

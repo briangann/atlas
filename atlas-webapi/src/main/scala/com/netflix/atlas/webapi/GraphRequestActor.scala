@@ -82,7 +82,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       val shardList = List.range(0,numberOfShards)
       val futureMap = shardList.map {
         shardId =>
-          log.debug("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
+          log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
           val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
           aFuture
       }
