@@ -37,6 +37,12 @@ import com.netflix.spectator.api.Spectator
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.StrictLogging
+/* kafka additions */
+import akka.persistence._
+import akka.persistence.kafka._
+import akka.persistence.kafka.journal.KafkaJournalConfig
+import akka.serialization.SerializationExtension
+/* end of kafka additions */
 
 // chill
 //import com.twitter.chill

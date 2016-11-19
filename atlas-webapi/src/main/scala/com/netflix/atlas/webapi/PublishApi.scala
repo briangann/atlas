@@ -123,6 +123,8 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
               val aReq = validate(newList)
               //logger.debug(s"PublishApi.Ingest future will send request to " + publishRef.toString())
               // use a future to send the data
+              logger.info("PublishApi.Ingest: publishRef " + publishRef)
+
               val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds).mapTo[HttpResponse]
               aFuture
           }
@@ -162,12 +164,13 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
           // best effort - if there's a failure on an ask, discard it
           master onFailure {
            case aFailure => {
-              logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
+              logger.warn("PublishApi.Ingest.master.onFailure: general failure ingesting: " + aFailure)
+              logger.warn("master exception " + aFailure.printStackTrace())
               // queue this request and try again, let the sender know we'll process later
-              ctx.responder ! HttpResponse(StatusCodes.Processing)
+              //ctx.responder ! HttpResponse(StatusCodes.Processing)
               // ok lets try again
-              logger.warn("PublishApi.Ingest.master.onFailure: Requeue")
-              handleReq(ctx)
+              //logger.warn("PublishApi.Ingest.master.onFailure: Requeue")
+              //handleReq(ctx)
             }
           }
         case None =>

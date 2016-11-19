@@ -2,7 +2,7 @@ import sbt._
 
 object Dependencies {
   object Versions {
-    val akka       = "2.4.8"
+    val akka       = "2.4.12"
     val aws        = "1.11.37"
     val iep        = "0.4.8"
     val guice      = "4.1.0"
@@ -22,6 +22,11 @@ object Dependencies {
   val akkaCluster     = "com.typesafe.akka" %% "akka-cluster" % akka
   val akkaClusterSharding  = "com.typesafe.akka" %% "akka-cluster-sharding" % akka
   val akkaPersistence = "com.typesafe.akka" %% "akka-persistence" % akka
+  //val akkaPersistenceKafka = "com.github.krasserm" %% "akka-persistence-kafka" % "0.4"
+  val akkaPersistenceKafka = "com.github.brokersquare" % "akka-persistence-kafka" % "0.4"
+  val akkaPersistenceKafkaZKClient = "com.101tec" % "zkclient" % "0.10"
+  val akkaPersistenceKafkaScalaUtilsParsing = "org.scala-lang.modules" %% "scala-parser-combinators" % "1.0.2"
+  val apacheKafka = "org.apache.kafka" %% "kafka" % "0.8.2.1"
   val levelDB         = "org.iq80.leveldb" % "leveldb" % "0.7"
   val levelDBJNI      = "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
   val chill           = "com.twitter" % "chill_2.11" % "0.8.0"

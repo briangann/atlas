@@ -21,6 +21,11 @@ import akka.actor.Actor
 import akka.actor.ActorLogging
 import akka.actor.ActorRef
 import akka.persistence._
+/* kafka additions */
+import akka.persistence.kafka._
+import akka.persistence.kafka.journal.KafkaJournalConfig
+import akka.serialization.SerializationExtension
+/* end of kafka additions */
 import com.netflix.atlas.akka.DiagnosticMessage
 import com.netflix.atlas.core.db.Database
 import com.netflix.atlas.core.db.MemoryDatabase
@@ -106,7 +111,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
   private val cache = new NormalizationCache(DefaultSettings.stepSize, memDb.update)
 
-  override def persistenceId = self.path.parent.name + "-" + self.path.name
+  override def persistenceId = self.path.parent.name + "_" + self.path.name
 
  
   var state = ClusterPublishState()
@@ -126,6 +131,10 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     state.size
  
   override def receiveRecover: Receive = {
+    case _ =>
+      log.info("receiveRecover: Receive: ########### GOT HERE! #######")
+  }
+  def NOTreceiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
       //log.info("receiveRecover: Receive: case evt: ClusterPublishEvt: entered")
       updateState(evt)
@@ -171,8 +180,11 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   }
   
 
- 
-  override def receiveCommand: Receive = {
+ override def receiveCommand: Receive = {
+    case _ =>
+      log.info("receiveCommand: Receive: ########### GOT HERE! #######")
+  }
+ def NOTreceiveCommand: Receive = {
     case IngestTaggedItem(id,req) =>
       req match {
         case PublishRequest(Nil, Nil) =>
@@ -185,25 +197,25 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           sendError(sender(), StatusCodes.BadRequest, msg)
         case PublishRequest(values, Nil) =>
           //log.debug("IngestTaggedItem:PublishRequest all good")
-          //update(values)
-          persist(ClusterPublishEvt(Json.encode(values))) {
-            event =>
-              update(values)
-              updateState(event)
-              context.system.eventStream.publish(event)
-          }
+          update(values)
+          //persist(ClusterPublishEvt(Json.encode(values))) {
+          //  event =>
+          //    update(values)
+          //    updateState(event)
+          //    context.system.eventStream.publish(event)
+          //}
           sender() ! HttpResponse(StatusCodes.OK)
         case PublishRequest(values, failures) =>
           log.warning("IngestTaggedItem:PublishRequest partial failures")
-          //update(values)
-          //updateStats(failures)
-          persist(ClusterPublishEvt(Json.encode(values))) {
-            event =>
-              updateState(event)
-              update(values)
-              updateStats(failures)
-              context.system.eventStream.publish(event)
-          }
+          update(values)
+          updateStats(failures)
+          //persist(ClusterPublishEvt(Json.encode(values))) {
+          //  event =>
+          //    updateState(event)
+          //    update(values)
+          //    updateStats(failures)
+          //    context.system.eventStream.publish(event)
+          //}
           val msg = FailureMessage.partial(failures)
           sendError(sender(), StatusCodes.Accepted, msg)
         case _ =>
@@ -211,11 +223,11 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       }
     case ClusterPublishCmd(data) =>
       log.info("ClusteredPublishActor: ClusterPublishCmd persist")
-      persist(ClusterPublishEvt(s"${data}-${numEvents}"))(updateState)
-      persist(ClusterPublishEvt(s"${data}-${numEvents + 1}")) { event =>
-        updateState(event)
-        context.system.eventStream.publish(event)
-      }
+      //persist(ClusterPublishEvt(s"${data}-${numEvents}"))(updateState)
+      //persist(ClusterPublishEvt(s"${data}-${numEvents + 1}")) { event =>
+      //  updateState(event)
+      //  context.system.eventStream.publish(event)
+      //}
     case "snap"  =>
       log.info("Command is to take a snapshot...")
       // check if there are more values than we had before
@@ -254,10 +266,10 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       sendError(sender(), StatusCodes.BadRequest, msg)
     case PublishRequest(values, Nil) =>
       update(values)
-      persist(ClusterPublishEvt(Json.encode(values))) { event =>
-        updateState(event)
-        context.system.eventStream.publish(event)
-      }
+      //persist(ClusterPublishEvt(Json.encode(values))) { event =>
+      //  updateState(event)
+      //  context.system.eventStream.publish(event)
+      //}
       sender() ! HttpResponse(StatusCodes.OK)
     case PublishRequest(values, failures) =>
       update(values)

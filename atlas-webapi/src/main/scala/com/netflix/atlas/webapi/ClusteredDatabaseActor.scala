@@ -22,6 +22,11 @@ import akka.actor.ActorSystem
 import akka.cluster
 
 import akka.persistence._
+/* kafka additions */
+//import akka.persistence.kafka._
+//import akka.persistence.kafka.journal.KafkaJournalConfig
+//import akka.serialization.SerializationExtension
+/* end of kafka additions */
 import akka.actor.ActorLogging
 import com.netflix.atlas.core.db.Database
 
@@ -94,7 +99,7 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
   import com.netflix.atlas.webapi.TagsApi._
   import scala.concurrent.duration._
 
-  override def persistenceId = self.path.parent.name + "-" + self.path.name
+  override def persistenceId = self.path.parent.name + "_" + self.path.name
   // passivate the entity when there is no activity
   //context.setReceiveTimeout(2.minutes)
  
