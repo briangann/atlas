@@ -37,7 +37,7 @@ final class AkkaModule extends AbstractModule {
     install(new LifecycleModule)
     val serviceBinder = Multibinder.newSetBinder(binder, classOf[Service])
     serviceBinder.addBinding().to(classOf[ActorClusterService])
-    serviceBinder.addBinding().to(classOf[ActorService])
+    //serviceBinder.addBinding().to(classOf[ActorService])
     serviceBinder.addBinding().to(classOf[WebServer])
   }
 

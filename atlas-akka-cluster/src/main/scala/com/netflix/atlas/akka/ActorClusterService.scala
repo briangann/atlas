@@ -44,7 +44,6 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
 
   override def startImpl(): Unit = {
     import scala.collection.JavaConverters._
-    
     config.getConfigList("atlas.akka.atlascluster.cluster").asScala.foreach { cfg =>
       var name = cfg.getString("name")
       var proxy: Boolean = false
@@ -98,10 +97,23 @@ class ActorClusterService @Inject() (system: ActorSystem, config: Config, classF
       }
       
     }
+    config.getConfigList("atlas.akka.actors").asScala.foreach { cfg =>
+      val name = cfg.getString("name")
+      val cls = Class.forName(cfg.getString("class"))
+      val ref = system.actorOf(newActor(name, cls), name)
+      logger.info(s"created actor '${ref.path}' using class '${cls.getName}'")
+    }
+
+  }
+
+  private def newActor(name: String, cls: Class[_]): Props = {
+    val props = Props(classFactory.newInstance[Actor](cls))
+    val routerCfgPath = s"akka.actor.deployment./$name.router"
+    if (config.hasPath(routerCfgPath)) FromConfig.props(props) else props
   }
 
   override def stopImpl(): Unit = {
-  //  Await.ready(system.terminate(), Duration.Inf)
+      Await.ready(system.terminate(), Duration.Inf)
   }
    
 }

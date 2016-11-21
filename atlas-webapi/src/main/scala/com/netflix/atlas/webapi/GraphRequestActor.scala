@@ -35,12 +35,15 @@ import spray.can.Http
 import spray.http.MediaTypes._
 import spray.http._
 import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.ShardRegion._
 import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
 import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.duration._
 import scala.concurrent._
 import scala.concurrent.ExecutionContext.Implicits.global
+import java.math.BigInteger
+
 
 class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor with ActorLogging {
 
@@ -71,16 +74,18 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
 
   def innerReceive: Receive = {
     case req: Request =>
-      request = req
+      // important - this is referenced elsewhere and must be first
       responseRef = sender()
+      request = req
+      /* the request can be inspected for the tags that will be queried, and only the shards that have those tags need be asked */
+      var shardsToAsk = getShardsForQuery(req)
       //log.info("GraphRequestActor.req: request is " + req)
-      // ask all shards
       var results: List[DataResponse] = List()
       var dbRequest = req.toDbRequest
+
       //log.info("GraphRequestActor.req: dbrequest is " + dbRequest)
-      // ask all shards
-      val shardList = List.range(0,numberOfShards)
-      val futureMap = shardList.map {
+      // ask only the shards required
+      val futureMap = shardsToAsk.map {
         shardId =>
           log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
           val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
@@ -92,9 +97,9 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       
       // this is a new future that will pull together all of the shard requests
       // this is nonblocking since it is itself a future
-      val master = futureSequence.map { 
+      val master = futureSequence.map {
         responses =>
-          responses.foreach { aResponse => 
+          responses.foreach { aResponse =>
             results = aResponse :: results
           }
       }
@@ -105,7 +110,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
         case l => {
           //log.debug("GraphRequestActor.req: master onComplete entered")
           // we should have all responses now
-          log.debug("GraphRequestActor.req: master: result as list is " + results)
+          //log.debug("GraphRequestActor.req: master: result as list is " + results)
           // now merge the results
           //log.debug("GraphRequestActor.req: master: Merging...")
           var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
@@ -177,6 +182,38 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
     case ev: Http.ConnectionClosed =>
       log.info("connection closed")
       context.stop(self)
+  }
+
+  /*
+   * This returns a List[Integer]() of all shards corresponding to the tags of the query
+   */
+  private def getShardsForQuery(req: Request) : List[Integer] = {
+    var allShards = List[Integer]()
+    req.exprs.foreach {
+      aStyleExpr =>
+        //log.info("****aStyleExpr = " + aStyleExpr)
+        aStyleExpr.expr.dataExprs.foreach {
+          aDataExpr =>
+            var aQueryList = Query.cnfList(aDataExpr.query)
+            aQueryList.foreach {
+              aQuery =>
+                //log.info("aQueryList pair = " + aQuery)
+                var tagsMap = Query.tags(aQuery)
+                //log.info("** aQueryList tags = " + tagsMap)
+                //tagsMap.values.foreach {
+                //  aValue =>
+                //    log.info("TAG IS " + aValue)
+                //}
+                var ti = TaggedItem.computeId(tagsMap)
+                //log.info("TaggedItem computed ID is " + ti)
+                var shardId = ti.abs().mod(BigInteger.valueOf(numberOfShards))
+                allShards = shardId.intValue() :: allShards
+            }
+        }
+    }
+    // reduce to distinct shards
+    allShards = allShards.distinct
+    return allShards
   }
 
   private def sendErrorImage(t: Throwable, w: Int, h: Int): Unit = {

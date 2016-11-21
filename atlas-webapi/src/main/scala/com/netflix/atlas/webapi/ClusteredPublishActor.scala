@@ -48,7 +48,7 @@ import java.math.BigInteger
 
 
 object ClusteredPublishActor{
-  import com.netflix.atlas.webapi.PublishApi._
+  import com.netflix.atlas.webapi.PublishApi.PublishRequest
   import com.netflix.atlas.config.ConfigManager
 
   def shardName = "ClusteredPublishActor"
@@ -78,13 +78,17 @@ case class ClusterPublishEvt(data: String)
 
 case class ClusterPublishState(events: List[String] = Nil) {
   def updated(evt: ClusterPublishEvt): ClusterPublishState = copy(evt.data :: events)
+  def updatedRaw(rawEvents: List[String]): ClusterPublishState = copy (rawEvents ++ events)
+
   def size: Int = events.length
   override def toString: String = events.reverse.toString
 }
 
 
 class ClusteredPublishActor(registry: Registry, db: Database) extends PersistentActor with ActorLogging {
-  import com.netflix.atlas.webapi.PublishApi._
+  import com.netflix.atlas.webapi.PublishApi.PublishRequest
+  import com.netflix.atlas.webapi.PublishApi.FailureMessage
+
   import ClusteredPublishActor._
  
   import scala.concurrent.duration._
@@ -119,55 +123,60 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
   var recoveryCounter: Int = 0
   
-  def updateState(event: ClusterPublishEvt): Unit =
+  def updateState(event: ClusterPublishEvt): Unit = {
     state = state.updated(event)
+    // now put it in the cache...
+    //log.info("ClusteredPublishActor: updateState putting data into the cache, persistence id is " + persistenceId + " data: " + event.data)
+    updateCache(Json.decode[List[Datapoint]](event.data))
+  }
  
   def numEvents =
     state.size
  
   override def receiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
-      //log.info("receiveRecover: Receive: case evt: ClusterPublishEvt: entered")
       updateState(evt)
-      //log.info("ClusterPublishActor: adding evt to updateState")
-      //log.info("I should be putting stuff back into the memory database...")
-      //log.info("evt data is " + evt.data)
-      var myDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](evt.data)
-      log.info("ClusteredPublishActor: Replay datapoint " + myDatapoints.toString())
-      //log.info("receiveRecover: Receive: case evt: ClusterPublishEvt: calling update with old datapoints")
-      update(myDatapoints)
       recoveryCounter += 1
-      log.info("ClusteredPublishActor: recoveryCounter = " + recoveryCounter)
+      //log.info("ClusteredPublishActor: recoveryCounter = " + recoveryCounter)
    case SnapshotOffer(metadata, snapshot: ClusterPublishState) =>
       log.info("Lets try to use a snapshot... with size " + snapshot.size)
-      state = snapshot
+      //state = snapshot
+      lastSnapshotSize = snapshot.size
       // on initial startup the sequence is unknown
       if (lastSnapshotSequenceNum == 0) {
         lastSnapshotSequenceNum = metadata.sequenceNr
         lastSnapshotTimestamp = metadata.timestamp
       }
-      log.info("ok, we used a snapshot... when recovery is completed, make sure to populate memorydb!")
+
+      // build the complete list of datapoints and atomically send to updateCache
+      var values = List[Datapoint]()
+      var stringValues = List[String]()
+      snapshot.events.foreach {
+        event =>
+          //log.info("SNAPSHOT decoding event into datapoint: " + event)
+          val valueAsList = Json.decode[List[Datapoint]](event)
+          //log.info("SNAPSHOT datapoint list is: " + valueAsList)
+          // there is just one, take the front
+          var value = valueAsList.head;
+          // append
+          values = value :: values
+          stringValues = event :: stringValues
+          // update our state along the way
+          // state = state.updated(ClusterPublishEvt(event))
+          recoveryCounter += 1
+      }
+      // now update the cache...
+      //log.info("SNAPSHOT datapoints: " + values)
+      updateCache(values)
+      // now update state
+      state = state.updatedRaw(snapshot.events)
+      log.info("ok, snapshot recovery is done...")
     case RecoveryCompleted =>
       log.info("################# ClusteredPublishActor: recoveryCounter = " + recoveryCounter)
       log.info("################# ClusteredPublishActor: recovery completed...")
       recoveryCounter = 0
-      // TODO: if a snapshot was used to recover, we need to replay the state into the memory db
-      // we also need to load up our memory database with the snapshot data
-/*
-      state.events.foreach {
-        datapoint =>
-          var recoverDatapoints: List[Datapoint] = Json.decode[List[Datapoint]](datapoint)
-          // now add them to memory db
-          if (recoverDatapoints.size > 0) {
-            log.info("Recovery Completed - now pushing events into database " + recoverDatapoints.toString())
-            update(recoverDatapoints)
-          }
-      }
-      */
-      
       // we used a snapshot, get its size
-      lastSnapshotSize = state.size
-
+      //lastSnapshotSize = state.size
   }
   
 
@@ -185,22 +194,17 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           sendError(sender(), StatusCodes.BadRequest, msg)
         case PublishRequest(values, Nil) =>
           //log.debug("IngestTaggedItem:PublishRequest all good")
-          //update(values)
           persist(ClusterPublishEvt(Json.encode(values))) {
             event =>
-              update(values)
               updateState(event)
               context.system.eventStream.publish(event)
           }
           sender() ! HttpResponse(StatusCodes.OK)
         case PublishRequest(values, failures) =>
           log.warning("IngestTaggedItem:PublishRequest partial failures")
-          //update(values)
-          //updateStats(failures)
           persist(ClusterPublishEvt(Json.encode(values))) {
             event =>
               updateState(event)
-              update(values)
               updateStats(failures)
               context.system.eventStream.publish(event)
           }
@@ -219,6 +223,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     case "snap"  =>
       log.info("Command is to take a snapshot...")
       // check if there are more values than we had before
+      log.info(s"Old Size was" + lastSnapshotSize + " new size is " +  state.size)
       if (state.size > lastSnapshotSize) {
         log.info(s"Taking a snapshot, old size was " + lastSnapshotSize + " new size is " +  state.size)
         saveSnapshot(state)
@@ -253,14 +258,12 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       val msg = FailureMessage.error(failures)
       sendError(sender(), StatusCodes.BadRequest, msg)
     case PublishRequest(values, Nil) =>
-      update(values)
       persist(ClusterPublishEvt(Json.encode(values))) { event =>
         updateState(event)
         context.system.eventStream.publish(event)
       }
       sender() ! HttpResponse(StatusCodes.OK)
     case PublishRequest(values, failures) =>
-      update(values)
       updateStats(failures)
       val msg = FailureMessage.partial(failures)
       sendError(sender(), StatusCodes.Accepted, msg)
@@ -271,13 +274,13 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     ref ! HttpResponse(status = status, entity = entity)
   }
   
-  private def update(vs: List[Datapoint]): Unit = {
+  private def updateCache(vs: List[Datapoint]): Unit = {
 
     val now = System.currentTimeMillis()
     vs.foreach { v =>
       numReceived.record(now - v.timestamp)
       try {
-        log.info("ClusteredPublishActor: update storing " + v.toString())
+        //log.info("ClusteredPublishActor: update storing " + v.toString())
 
         v.tags.get(TagKey.dsType) match {
           case Some("counter") => 
@@ -303,6 +306,6 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   }
   
   // we are going to snapshot every 30 seconds...
-  //context.system.scheduler.schedule(60.seconds, 30.seconds, self, "snap")(context.system.dispatcher, self)
+  context.system.scheduler.schedule(60.seconds, 30.seconds, self, "snap")(context.system.dispatcher, self)
 }
 
