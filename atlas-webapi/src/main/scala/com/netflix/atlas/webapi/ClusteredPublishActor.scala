@@ -110,7 +110,8 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
   private val cache = new NormalizationCache(DefaultSettings.stepSize, memDb.update)
 
-  override def persistenceId = self.path.parent.name + "-" + self.path.name
+  //override def persistenceId = self.path.parent.name + "-" + self.path.name
+  override def persistenceId = self.path.toStringWithoutAddress
 
  
   var state = ClusterPublishState()
@@ -305,7 +306,8 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     }
   }
   
-  // we are going to snapshot every 10 minutes... after waiting 2 minutes after startup
+  // Take a snapshot every 10 minutes... after waiting 2 minutes after startup
+  // TODO: make this configurable
   context.system.scheduler.schedule(2.minutes, 10.minutes, self, "snap")(context.system.dispatcher, self)
 }
 

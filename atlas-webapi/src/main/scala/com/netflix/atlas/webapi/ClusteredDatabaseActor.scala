@@ -94,7 +94,9 @@ class ClusteredDatabaseActor(db: Database,  implicit val system: ActorSystem) ex
   import com.netflix.atlas.webapi.TagsApi._
   import scala.concurrent.duration._
 
-  override def persistenceId = self.path.parent.name + "-" + self.path.name
+  //override def persistenceId = self.path.parent.name + "-" + self.path.name
+  override def persistenceId = self.path.toStringWithoutAddress
+
   // passivate the entity when there is no activity
   //context.setReceiveTimeout(2.minutes)
  
