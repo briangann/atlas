@@ -305,7 +305,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     }
   }
   
-  // we are going to snapshot every 30 seconds...
-  context.system.scheduler.schedule(60.seconds, 30.seconds, self, "snap")(context.system.dispatcher, self)
+  // we are going to snapshot every 10 minutes... after waiting 2 minutes after startup
+  context.system.scheduler.schedule(2.minutes, 10.minutes, self, "snap")(context.system.dispatcher, self)
 }
 
