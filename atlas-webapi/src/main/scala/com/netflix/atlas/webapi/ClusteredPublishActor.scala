@@ -54,6 +54,8 @@ object ClusteredPublishActor{
   def shardName = "ClusteredPublishActor"
   private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
   private val numberOfShards = config.getInt("number-of-shards")
+  private val retainMinutes = config.getInt("retain-minutes")
+
   private val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
 
   case class IngestTaggedItem(taggedItemId: BigInteger, req: PublishRequest)
@@ -95,9 +97,6 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
   private val memDb = db.asInstanceOf[MemoryDatabase]
 
-  // passivate the entity when no activity
-  //context.setReceiveTimeout(2.minutes)
-  
   // Track the ages of data flowing into the system. Data is expected to arrive quickly and
   // should hit the backend within the step interval used.
   private val numReceived = {
@@ -110,83 +109,51 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
 
   private val cache = new NormalizationCache(DefaultSettings.stepSize, memDb.update)
 
-  //override def persistenceId = self.path.parent.name + "-" + self.path.name
   override def persistenceId = self.path.toStringWithoutAddress
 
  
   var state = ClusterPublishState()
- 
-  var lastSnapshot: SnapshotMetadata = null
-  var lastSnapshotSequenceNum: Long = 0
-  var lastSnapshotTimestamp: Long = 0
-  var lastSnapshotSize: Int = 0
-  var futureSnapshotSize: Int = 0
 
-  var recoveryCounter: Int = 0
+  /*
+   *  Journal Sequences are stored in a SortedMap
+   */
+  var journalHistory = scala.collection.SortedMap[Long,Long]()
+
+  // retain-minutes is defined in the config file
+  val retentionInterval = retainMinutes * 60 * 1000
+  var recoveryCounter: Long = 0
+  val snapshotDelay = 2.minutes
+  val snapshotInterval = 1.minutes
   
-  def updateState(event: ClusterPublishEvt): Unit = {
-    state = state.updated(event)
-    // now put it in the cache...
-    //log.info("ClusteredPublishActor: updateState putting data into the cache, persistence id is " + persistenceId + " data: " + event.data)
-    updateCache(Json.decode[List[Datapoint]](event.data))
+  def updateState(event: ClusterPublishEvt): Long = {
+    val purgeTimestamp = System.currentTimeMillis - retentionInterval
+    val datapoints = Json.decode[List[Datapoint]](event.data)
+    if (datapoints.head.timestamp >= purgeTimestamp) {
+      updateCache(datapoints)
+      1L
+    } else {
+      0L
+    }
   }
  
   def numEvents =
     state.size
- 
+
   override def receiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
-      updateState(evt)
-      recoveryCounter += 1
-      //log.info("ClusteredPublishActor: recoveryCounter = " + recoveryCounter)
-   case SnapshotOffer(metadata, snapshot: ClusterPublishState) =>
-      log.info("Lets try to use a snapshot... with size " + snapshot.size)
-      //state = snapshot
-      lastSnapshotSize = snapshot.size
-      // on initial startup the sequence is unknown
-      if (lastSnapshotSequenceNum == 0) {
-        lastSnapshotSequenceNum = metadata.sequenceNr
-        lastSnapshotTimestamp = metadata.timestamp
-      }
-
-      // build the complete list of datapoints and atomically send to updateCache
-      var values = List[Datapoint]()
-      var stringValues = List[String]()
-      snapshot.events.foreach {
-        event =>
-          //log.info("SNAPSHOT decoding event into datapoint: " + event)
-          val valueAsList = Json.decode[List[Datapoint]](event)
-          //log.info("SNAPSHOT datapoint list is: " + valueAsList)
-          // there is just one, take the front
-          var value = valueAsList.head;
-          // append
-          values = value :: values
-          stringValues = event :: stringValues
-          // update our state along the way
-          // state = state.updated(ClusterPublishEvt(event))
-          recoveryCounter += 1
-      }
-      // now update the cache...
-      //log.info("SNAPSHOT datapoints: " + values)
-      updateCache(values)
-      // now update state
-      state = state.updatedRaw(snapshot.events)
-      log.info("ok, snapshot recovery is done...")
+      recoveryCounter += updateState(evt)
+    case SnapshotOffer(metadata, snapshot: ClusterPublishState) =>
+      log.error("### THIS SHOULD NEVER HAPPEN: need to purge all snapshots!")
     case RecoveryCompleted =>
-      log.info("################# ClusteredPublishActor: recoveryCounter = " + recoveryCounter)
-      log.info("################# ClusteredPublishActor: recovery completed...")
-      recoveryCounter = 0
-      // we used a snapshot, get its size
-      //lastSnapshotSize = state.size
+      log.info(s"################# ClusteredPublishActor: recovery completed, replayed ${recoveryCounter} journal entries")
+      recoveryCounter = 0L
   }
-  
-
  
   override def receiveCommand: Receive = {
     case IngestTaggedItem(id,req) =>
       req match {
         case PublishRequest(Nil, Nil) =>
-          log.warning("IngestTaggedItem:PublishRequest badrequest")
+          log.warning("IngestTaggedItem:PublishRequest bad request - payload empty")
           DiagnosticMessage.sendError(sender(), StatusCodes.BadRequest, "empty payload")
         case PublishRequest(Nil, failures) =>
           log.warning("IngestTaggedItem:PublishRequest onlyfailures")
@@ -194,80 +161,63 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           val msg = FailureMessage.error(failures)
           sendError(sender(), StatusCodes.BadRequest, msg)
         case PublishRequest(values, Nil) =>
-          //log.debug("IngestTaggedItem:PublishRequest all good")
-          persist(ClusterPublishEvt(Json.encode(values))) {
+          // respond first, then persist async
+          sender() ! HttpResponse(StatusCodes.OK)
+          persistAsync(ClusterPublishEvt(Json.encode(values))) {
             event =>
               updateState(event)
               context.system.eventStream.publish(event)
           }
-          sender() ! HttpResponse(StatusCodes.OK)
         case PublishRequest(values, failures) =>
+          // respond first, then persist async
+          val msg = FailureMessage.partial(failures)
+          sendError(sender(), StatusCodes.Accepted, msg)
           log.warning("IngestTaggedItem:PublishRequest partial failures")
-          persist(ClusterPublishEvt(Json.encode(values))) {
+          persistAsync(ClusterPublishEvt(Json.encode(values))) {
             event =>
               updateState(event)
               updateStats(failures)
               context.system.eventStream.publish(event)
           }
-          val msg = FailureMessage.partial(failures)
-          sendError(sender(), StatusCodes.Accepted, msg)
         case _ =>
-          log.warning("IngestTaggedItem: unknown request - " + req)
-      }
-    case ClusterPublishCmd(data) =>
-      log.info("ClusteredPublishActor: ClusterPublishCmd persist")
-      persist(ClusterPublishEvt(s"${data}-${numEvents}"))(updateState)
-      persist(ClusterPublishEvt(s"${data}-${numEvents + 1}")) { event =>
-        updateState(event)
-        context.system.eventStream.publish(event)
+          log.error("IngestTaggedItem: unknown request - " + req)
       }
     case "snap"  =>
-      log.info("Command is to take a snapshot...")
-      // check if there are more values than we had before
-      log.info(s"Old Size was" + lastSnapshotSize + " new size is " +  state.size)
-      if (state.size > lastSnapshotSize) {
-        log.info(s"Taking a snapshot, old size was " + lastSnapshotSize + " new size is " +  state.size)
-        saveSnapshot(state)
-        // save the size, if the snapshot succeeds this will become our
-        // new last snapshot size
-        futureSnapshotSize = state.size
-      }
-      else {
-        log.info("No changes have been made, skipping snapshot")
-      }
+      saveSnapshot(state)
     case SaveSnapshotSuccess(m) =>
-      log.info(s"snapshot saved. seqNum:${m.sequenceNr}, timeStamp:${m.timestamp}")
-      // check if the sequence number has changed, if it has, then we want to purge all of the old snapshots
-      if (m.sequenceNr > lastSnapshotSequenceNum) {
-        log.info(s"Sequence has increased, will purge old snapshots, old seq was " + lastSnapshotSequenceNum + " new seq is " +  m.sequenceNr)
-        // delete our old snapshots
-        deleteSnapshots(new SnapshotSelectionCriteria(lastSnapshotSequenceNum, lastSnapshotTimestamp))
-        //deleteSnapshot(lastSnapshotSequenceNum)
-        // track this snapshot
-        lastSnapshot = m
-        lastSnapshotSequenceNum = m.sequenceNr
-        lastSnapshotTimestamp = m.timestamp
-        // use the size we stored when taking the snapshot
-        lastSnapshotSize = futureSnapshotSize
+      log.info(s"##### SaveSnapshotSuccess: seqNum:${m.sequenceNr}, timeStamp:${m.timestamp}")
+      // store the timestamp and sequence in our history
+      journalHistory += m.timestamp -> m.sequenceNr
+      val timeNowMS: Long = System.currentTimeMillis
+      val purgeTimestamp = timeNowMS - retentionInterval
+      val journalHistorySizeBefore = journalHistory.size
+      log.info(s"##### SaveSnapshotSuccess: journalHistory size before filter: ${journalHistorySizeBefore}")
+      log.info(s"##### SaveSnapshotSuccess: journalHistory before filter: ${journalHistory}")
+      journalHistory = journalHistory.filterKeys(_ >= purgeTimestamp)
+      // if we did drop data from the journal, purge the messages
+      if (journalHistory.size < journalHistorySizeBefore) {
+        log.info(s"##### SaveSnapshotSuccess: journalHistory size after filter: ${journalHistory.size}")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory changed, is now: ${journalHistory}")
+        // keep everything up to what is left, this is a sortedmap, the head will have the oldest timestamp
+        val purgeSequence = journalHistory.head
+        // we get back a (Long, Long), we want the sequence#
+        log.info(s"###### SaveSnapshotSuccess: oldest journal entry seqNum:${purgeSequence._2}, timeStamp:${purgeSequence._1}")
+        var purgeSequenceNumber = purgeSequence._2 - 1
+        // make sure it is >= 0
+        if (purgeSequenceNumber < 0) { purgeSequenceNumber = 0}
+        // now purge the journal
+        log.info(s"##### SaveSnapshotSuccess: Deleting journal entries up to sequence ${purgeSequenceNumber}")
+        deleteMessages(purgeSequenceNumber)
+      } else {
+        log.info(s"##### SaveSnapshotSuccess: Retaining ALL journal entries")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory contains: ${journalHistory}")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory size: ${journalHistorySizeBefore}")
       }
+      // now delete this snapshot
+      log.info(s"##### Deleting snapshot")
+      deleteSnapshots(new SnapshotSelectionCriteria(m.sequenceNr, m.timestamp))
     case ShutdownClusteredPublisher =>
       context.stop(self)
-    case PublishRequest(Nil, Nil) =>
-      DiagnosticMessage.sendError(sender(), StatusCodes.BadRequest, "empty payload")
-    case PublishRequest(Nil, failures) =>
-      updateStats(failures)
-      val msg = FailureMessage.error(failures)
-      sendError(sender(), StatusCodes.BadRequest, msg)
-    case PublishRequest(values, Nil) =>
-      persist(ClusterPublishEvt(Json.encode(values))) { event =>
-        updateState(event)
-        context.system.eventStream.publish(event)
-      }
-      sender() ! HttpResponse(StatusCodes.OK)
-    case PublishRequest(values, failures) =>
-      updateStats(failures)
-      val msg = FailureMessage.partial(failures)
-      sendError(sender(), StatusCodes.Accepted, msg)
   }
   
   private def sendError(ref: ActorRef, status: StatusCode, msg: FailureMessage): Unit = {
@@ -276,13 +226,10 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   }
   
   private def updateCache(vs: List[Datapoint]): Unit = {
-
     val now = System.currentTimeMillis()
     vs.foreach { v =>
       numReceived.record(now - v.timestamp)
       try {
-        //log.info("ClusteredPublishActor: update storing " + v.toString())
-
         v.tags.get(TagKey.dsType) match {
           case Some("counter") => 
               cache.updateCounter(v)
@@ -306,8 +253,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     }
   }
   
-  // Take a snapshot every 10 minutes... after waiting 2 minutes after startup
-  // TODO: make this configurable
-  context.system.scheduler.schedule(2.minutes, 10.minutes, self, "snap")(context.system.dispatcher, self)
+  // Take a snapshot every snapshotInterval minutes... after waiting snapshotDelay minutes after startup
+  context.system.scheduler.schedule(snapshotDelay, snapshotInterval, self, "snap")(context.system.dispatcher, self)
 }
 
