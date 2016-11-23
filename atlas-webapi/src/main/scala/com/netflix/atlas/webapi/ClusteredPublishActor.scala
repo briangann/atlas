@@ -46,6 +46,14 @@ import scala.concurrent.duration.Duration;
 import java.util.concurrent.TimeUnit;
 import java.math.BigInteger
 
+// kafka
+import akka.kafka.{ProducerMessage,ProducerSettings}
+import akka.stream.ActorMaterializer
+import akka.kafka.scaladsl.Producer
+import akka.stream.scaladsl.{Sink, Source}
+import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.producer.KafkaProducer
+import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, StringDeserializer, StringSerializer}
 
 object ClusteredPublishActor{
   import com.netflix.atlas.webapi.PublishApi.PublishRequest
@@ -53,6 +61,9 @@ object ClusteredPublishActor{
 
   def shardName = "ClusteredPublishActor"
   private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  private val kafkaConfig = ConfigManager.current.getConfig("akka.kafka.producer")
+  private val kafkaEnabled = config.getBoolean("kafka-enabled")
+
   private val numberOfShards = config.getInt("number-of-shards")
   private val retainMinutes = config.getInt("retain-minutes")
 
@@ -110,7 +121,6 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   private val cache = new NormalizationCache(DefaultSettings.stepSize, memDb.update)
 
   override def persistenceId = self.path.toStringWithoutAddress
-
  
   var state = ClusterPublishState()
 
@@ -138,6 +148,49 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
  
   def numEvents =
     state.size
+
+  // needed for kafka
+  implicit val materializer = ActorMaterializer()
+  // single producer
+  var aProducer: KafkaProducer[Array[Byte], String] = null
+  var producerSettings : ProducerSettings[Array[Byte], String] = null
+
+  def createKafkaProducer() {
+    producerSettings = ProducerSettings(kafkaConfig, new ByteArraySerializer, new StringSerializer)
+      .withProperty("client.id", persistenceId)
+    aProducer = producerSettings.createKafkaProducer()
+  }
+
+  def sendToKafka(evt: ClusterPublishEvt) = {
+    if (aProducer == null) {
+      createKafkaProducer()
+    }
+    log.debug("### Sending event to KAFKA")
+    try {
+      val ba = List(evt.data)
+      val done = Source(ba)
+        .map { n =>
+          // can distribute this message across partitions
+          // val partition = math.abs(n) % 2
+          val partition = 0
+          ProducerMessage.Message(new ProducerRecord[Array[Byte], String](
+            "atlas-metrics", partition, null, n.toString
+          ), n)
+        }
+        .via(Producer.flow(producerSettings,aProducer))
+        .map { result =>
+          val record = result.message.record
+          log.debug(s"ClusteredPublishActor.sendToKafka: ${record.topic}/${record.partition} ${result.offset}: ${record.value}" +
+          s"(${result.message.passThrough})")
+        }
+        .runWith(Sink.ignore)
+    }
+    catch {
+      case e: Exception =>
+        // ignore
+        log.warning("Failed to send message to Kafka: " + e.getMessage)
+    }
+  }
 
   override def receiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
@@ -167,6 +220,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
             event =>
               updateState(event)
               context.system.eventStream.publish(event)
+              if (kafkaEnabled) sendToKafka(event)
           }
         case PublishRequest(values, failures) =>
           // respond first, then persist async
@@ -178,6 +232,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
               updateState(event)
               updateStats(failures)
               context.system.eventStream.publish(event)
+              if (kafkaEnabled) sendToKafka(event)
           }
         case _ =>
           log.error("IngestTaggedItem: unknown request - " + req)

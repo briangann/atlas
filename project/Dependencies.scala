@@ -22,6 +22,11 @@ object Dependencies {
   val akkaCluster     = "com.typesafe.akka" %% "akka-cluster" % akka
   val akkaClusterSharding  = "com.typesafe.akka" %% "akka-cluster-sharding" % akka
   val akkaPersistence = "com.typesafe.akka" %% "akka-persistence" % akka
+  val akkaStream =   "com.typesafe.akka" %% "akka-stream" % akka
+  val akkaStreamKafka = "com.typesafe.akka" %% "akka-stream-kafka" % "0.13"
+  val kafka = "org.apache.kafka" %% "kafka" % "0.10.0.1"
+  val kafkaClients = "org.apache.kafka" % "kafka-clients" % "0.10.0.1"
+  val reactiveStreams = "org.reactivestreams" % "reactive-streams" % "1.0.0"
   val levelDB         = "org.iq80.leveldb" % "leveldb" % "0.7"
   val levelDBJNI      = "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
   val chill           = "com.twitter" % "chill_2.11" % "0.8.0"
