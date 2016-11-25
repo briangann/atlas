@@ -58,7 +58,7 @@ lazy val `atlas-core` = project
 
 lazy val `atlas-jmh` = project
   .configure(BuildSettings.profile)
-  .dependsOn(`atlas-core`)
+  .dependsOn(`atlas-chart`, `atlas-core`, `atlas-json`)
   .enablePlugins(pl.project13.scala.sbt.SbtJmh)
 
 lazy val `atlas-json` = project

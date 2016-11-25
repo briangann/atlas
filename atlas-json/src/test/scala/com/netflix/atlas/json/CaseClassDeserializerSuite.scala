@@ -15,11 +15,16 @@
  */
 package com.netflix.atlas.json
 
+import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.Version
+import com.fasterxml.jackson.databind.DeserializationContext
+import com.fasterxml.jackson.databind.JsonDeserializer
 import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.Module
 import com.fasterxml.jackson.databind.Module.SetupContext
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.scalatest.FunSuite
 
@@ -41,7 +46,7 @@ class CaseClassDeserializerSuite extends FunSuite {
     .registerModule(module)
 
   def decode[T: Manifest](json: String): T = {
-    mapper.readValue[T](json, manifest.runtimeClass.asInstanceOf[Class[T]])
+    mapper.readValue[T](json, Reflection.typeReference[T])
   }
 
   test("read simple object") {
@@ -157,6 +162,40 @@ class CaseClassDeserializerSuite extends FunSuite {
     val actual = decode[ListStringDflt]("""{"vs":null}""")
     assert(actual === expected)
   }
+
+  test("generics") {
+    val expected = Outer(List(List(Inner("a"), Inner("b")), List(Inner("c"))))
+    val actual = decode[Outer]("""{"vs":[[{"v":"a"},{"v":"b"}],[{"v":"c"}]]}""")
+    assert(actual === expected)
+  }
+
+  test("generics 2") {
+    val expected = OuterT(List(List(Inner("a"), Inner("b")), List(Inner("c"))))
+    val actual = decode[OuterT[List[List[Inner]]]]("""{"vs":[[{"v":"a"},{"v":"b"}],[{"v":"c"}]]}""")
+    assert(actual === expected)
+  }
+
+  test("honors @JsonProperty annotation") {
+    val expected = PropAnno("foo")
+    val actual = decode[PropAnno]("""{"v":"foo"}""")
+    assert(actual === expected)
+  }
+
+  test("honors @JsonDeserialize.contentAs annotation") {
+    val expected = DeserAnno(Some(42L))
+    val actual = decode[DeserAnno]("""{"value":42}""")
+    assert(actual === expected)
+    // Line above will pass even if a java.lang.Integer is created. The
+    // check below will fail with:
+    // java.lang.ClassCastException: java.lang.Integer cannot be cast to java.lang.Long
+    assert(actual.value.get.asInstanceOf[java.lang.Long] === 42)
+  }
+
+  test("honors @JsonDeserialize.using annotation") {
+    val expected = DeserUsingAnno(43L)
+    val actual = decode[DeserUsingAnno]("""{"value":42}""")
+    assert(actual === expected)
+  }
 }
 
 object CaseClassDeserializerSuite {
@@ -179,4 +218,22 @@ object CaseClassDeserializerSuite {
   case class ListOptionInt(v: List[Option[Int]])
   case class ListString(vs: List[String])
   case class ListStringDflt(vs: List[String] = Nil)
+
+  case class Inner(v: String)
+  case class Outer(vs: List[List[Inner]])
+  case class OuterT[T](vs: T)
+
+  case class PropAnno(@JsonProperty("v") value: String)
+
+  case class DeserAnno(@JsonDeserialize(contentAs = classOf[java.lang.Long]) value: Option[Long])
+
+  case class DeserUsingAnno(@JsonDeserialize(using = classOf[AddOneDeserializer]) value: Long)
+
+  class AddOneDeserializer extends JsonDeserializer[java.lang.Long] {
+    override def deserialize(p: JsonParser, ctxt: DeserializationContext): java.lang.Long = {
+      val v = p.getLongValue
+      p.nextToken()
+      java.lang.Long.valueOf(v + 1)
+    }
+  }
 }
