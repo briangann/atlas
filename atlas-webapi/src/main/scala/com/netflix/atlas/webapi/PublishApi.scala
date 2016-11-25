@@ -16,6 +16,7 @@
 package com.netflix.atlas.webapi
 
 import akka.actor.ActorRefFactory
+import akka.actor.ActorSystem
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.core.JsonParser
 import com.netflix.atlas.akka.DiagnosticMessage
@@ -32,11 +33,36 @@ import com.netflix.atlas.json.Json
 import com.netflix.atlas.json.JsonSupport
 import spray.routing.RequestContext
 
-class PublishApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
+
+import com.netflix.atlas.core.model._
+
+import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.{ClusterShardingSettings, ClusterSharding}
+import scala.concurrent._
+import akka.pattern.ask
+import akka.util.Timeout
+import scala.concurrent.duration._
+
+import spray.http.HttpEntity
+import spray.http.HttpResponse
+import spray.http.MediaTypes
+import spray.http.StatusCode
+import spray.http.StatusCodes
+
+import java.math.BigInteger
+
+
+import scala.concurrent.ExecutionContext.Implicits.global
+
+
+class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val system: ActorSystem) extends WebApi {
 
   import com.netflix.atlas.webapi.PublishApi._
 
-  private val publishRef = actorRefFactory.actorSelection("/user/publish")
+  import org.slf4j.LoggerFactory
+  private val logger = LoggerFactory.getLogger(getClass)
+  //private val publishRef = actorRefFactory.actorSelection("/user/publish")
+  val publishRef = ClusterSharding(system).shardRegion(ClusteredPublishActor.shardName)
 
   private val config = ConfigManager.current.getConfig("atlas.webapi.publish")
 
@@ -60,9 +86,90 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
     try {
       getJsonParser(ctx.request) match {
         case Some(parser) =>
+          // TODO see side effect of internwhileparsing
           val data = decodeBatch(parser, internWhileParsing)
-          val req = validate(data)
-          publishRef.tell(req, ctx.responder)
+          // build a new req for each datapoint so we can have the taggeditem ride along
+          // that is unique to the ingestion
+          //
+          // This uses a "future" to ingest everything and get the response
+          var ingestionStatusCode: StatusCode = StatusCodes.OK
+         
+          // the ingestion process is a sequence of futures that only completes when the children are finished, giving the
+          // "worst" result of the ingestion process as the response
+          var futureMap = data.map {
+            x =>
+              // start with computing the ID based on all tags
+              var ti = TaggedItem.computeId(x.tags)
+              // workaround...
+              // the shardid is computed from the name of the metric only, this forces a metric to always end up on the same shard
+              x.tags.foreach {
+                aTag =>
+                  if (aTag._1 == "name") {
+                    // found name, get its value
+                    var aTagName = aTag._2
+                    // create a new Map
+                    var justName = Map[String,String](aTag._1  -> aTag._2 )
+                    // now compute the shard id
+                    ti = TaggedItem.computeId(justName)
+                  }
+              }
+              // alternative method is to compute from all of the tags, which spreads the time series across shards, but retrieval/merging becomes
+              // problematic - use simple method for now
+              // var ti = TaggedItem.computeId(x.tags)
+              //var id = x.idString
+              
+              //logger.info("PublishApi.Ingest: taggedItem ID: " + ti)
+              var newList: List[Datapoint] = List(x)
+              val aReq = validate(newList)
+              //logger.debug(s"PublishApi.Ingest future will send request to " + publishRef.toString())
+              // use a future to send the data
+              val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds).mapTo[HttpResponse]
+              aFuture
+          }
+          val futureSequence = Future.sequence(futureMap)
+          
+          // collect the responses
+          val master = futureSequence.map { 
+            responses =>
+              responses.foreach { aResponse => 
+                // determine what response we should send back
+                aResponse.status match {
+                  case StatusCodes.BadRequest =>
+                    logger.info("PublishApi.Ingest.master.onSuccess: request was bad")
+                    ingestionStatusCode = aResponse.status
+                  case StatusCodes.OK =>
+                    //logger.info("PublishApi.Ingest.master.onSuccess: all metrics ingested")
+                    ingestionStatusCode = aResponse.status
+                  case StatusCodes.Accepted =>
+                    logger.warn("PublishApi.Ingest.master.onSuccess: some metrics rejected")
+                    ingestionStatusCode = aResponse.status
+                  case _ =>
+                    logger.warn("PublishApi.Ingest.master.onSuccess: unrecognized response from publishactor: " + aResponse)
+                    ingestionStatusCode = StatusCodes.BadRequest
+                }
+            }
+          }
+          master onComplete {
+            case l => { 
+              //logger.info("PublishApi.Ingest.master.onComplete entered")
+              var aResponse = HttpResponse(ingestionStatusCode)
+              //logger.info("PublishApi.Ingest.master.onComplete: onComplete response is " + aResponse)
+              // now send the response, the futures are done
+              //logger.info("PublishApi.Ingest.master.onComplete: Sending response..." + ingestionStatusCode)
+              ctx.responder ! HttpResponse(ingestionStatusCode)
+            }
+          }
+          // best effort - if there's a failure on an ask, discard it
+          master onFailure {
+           case aFailure => {
+              logger.warn("PublishApi.Ingest.master.onFailure: " + aFailure)
+              // queue this request and try again, let the sender know we'll process later
+              ctx.responder ! HttpResponse(StatusCodes.Processing)
+              // ok lets try again
+              logger.warn("PublishApi.Ingest.master.onFailure: Requeue")
+              handleReq(ctx)
+            }
+          }
         case None =>
           throw new IllegalArgumentException("empty request body")
       }

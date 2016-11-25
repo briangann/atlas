@@ -20,6 +20,7 @@ import java.time.Instant
 import java.time.ZoneId
 
 import akka.actor.ActorRefFactory
+import akka.actor.ActorSystem
 import akka.actor.Props
 import com.netflix.atlas.akka.WebApi
 import com.netflix.atlas.chart._
@@ -34,9 +35,11 @@ import spray.http.HttpRequest
 import spray.http.MediaType
 import spray.http.Uri
 import spray.routing.RequestContext
+import com.netflix.iep.service.ServiceManager
+import javax.inject.Provider
 
-
-class GraphApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
+class GraphApi(implicit val actorRefFactory: ActorRefFactory,
+    system: ActorSystem) extends WebApi {
 
   private val registry = Spectator.globalRegistry()
 
@@ -44,7 +47,8 @@ class GraphApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
     path("api" / "v1" / "graph") {
       get { ctx =>
         try {
-          val reqHandler = actorRefFactory.actorOf(Props(new GraphRequestActor(registry)))
+          
+          val reqHandler = actorRefFactory.actorOf(Props(new GraphRequestActor(registry, system)))
           reqHandler.tell(GraphApi.toRequest(ctx.request), ctx.responder)
         } catch handleException(ctx)
       }

@@ -15,7 +15,7 @@
  */
 package com.netflix.atlas.core.util
 
-object SmallHashMap {
+object SmallHashMap  {
   def empty[K <: AnyRef, V <: AnyRef]: SmallHashMap[K, V] = new SmallHashMap[K, V](Array.empty, 0)
 
   def apply[K <: AnyRef, V <: AnyRef](ts: (K, V)*): SmallHashMap[K, V] = {
@@ -142,8 +142,8 @@ object SmallHashMap {
  * @param data        array with the items
  * @param dataLength  number of pairs contained within the array starting at index 0.
  */
-final class SmallHashMap[K <: AnyRef, V <: AnyRef] private (val data: Array[AnyRef], dataLength: Int)
-    extends scala.collection.immutable.Map[K, V] {
+final class SmallHashMap[K <: AnyRef, V <: AnyRef]  private (val data: Array[AnyRef], dataLength: Int)  
+    extends scala.collection.immutable.Map[K, V] with Serializable{
 
   require(data.length % 2 == 0)
 

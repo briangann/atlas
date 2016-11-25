@@ -50,9 +50,9 @@ case class QueryIndex[T](
       case q :: qs =>
         val children = indexes.get(q) match {
           case Some(qt) => qt.matches(tags, qs)
-          case None     => matches(tags, qs)
+          case None     => false
         }
-        children || entries.exists(_.query.matches(tags))
+        children || entries.exists(_.query.matches(tags)) || matches(tags, qs)
       case Nil =>
         entries.exists(_.query.matches(tags))
     }
@@ -69,9 +69,9 @@ case class QueryIndex[T](
       case q :: qs =>
         val children = indexes.get(q) match {
           case Some(qt) => qt.matchingEntries(tags, qs)
-          case None     => matchingEntries(tags, qs)
+          case None     => Nil
         }
-        children ::: entries.filter(_.query.matches(tags)).map(_.value)
+        children ::: entries.filter(_.query.matches(tags)).map(_.value) ::: matchingEntries(tags, qs)
       case Nil =>
         entries.filter(_.query.matches(tags)).map(_.value)
     }
@@ -128,7 +128,7 @@ object QueryIndex {
    */
   def create[T](entries: List[Entry[T]]): QueryIndex[T] = {
     val annotated = entries.flatMap { entry =>
-      val qs = split(entry.query)
+      val qs = Query.dnfList(entry.query).flatMap(split)
       qs.map(q => annotate(Entry(q, entry.value)))
     }
     val idxMap = new IndexMap[T]

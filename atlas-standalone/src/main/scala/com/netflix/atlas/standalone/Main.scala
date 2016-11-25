@@ -24,6 +24,7 @@ import com.google.inject.multibindings.Multibinder
 import com.google.inject.multibindings.OptionalBinder
 import com.google.inject.util.Modules
 import com.netflix.atlas.akka.ActorService
+import com.netflix.atlas.akkacluster.ActorClusterService
 import com.netflix.atlas.akka.WebServer
 import com.netflix.atlas.config.ConfigManager
 import com.netflix.atlas.core.db.Database
@@ -36,6 +37,9 @@ import com.netflix.spectator.api.Spectator
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.StrictLogging
+
+// chill
+//import com.twitter.chill
 
 /**
  * Provides a simple way to start up a standalone server. Usage:
