@@ -19,7 +19,7 @@ class Consumer(threading.Thread):
     daemon = True
 
     def run(self):
-        consumer = KafkaConsumer(bootstrap_servers='localhost:9092',
+        consumer = KafkaConsumer(bootstrap_servers='10.227.83.196:9092,10.227.86.105:9092,10.227.82.42:9092',
                                  auto_offset_reset='earliest')
         consumer.subscribe(['atlas-metrics'])
 

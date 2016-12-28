@@ -24,8 +24,8 @@ object Dependencies {
   val akkaPersistence = "com.typesafe.akka" %% "akka-persistence" % akka
   val akkaStream =   "com.typesafe.akka" %% "akka-stream" % akka
   val akkaStreamKafka = "com.typesafe.akka" %% "akka-stream-kafka" % "0.13"
-  val kafka = "org.apache.kafka" %% "kafka" % "0.10.0.1"
-  val kafkaClients = "org.apache.kafka" % "kafka-clients" % "0.10.0.1"
+  val kafka = "org.apache.kafka" %% "kafka" % "0.10.1.0"
+  val kafkaClients = "org.apache.kafka" % "kafka-clients" % "0.10.1.1"
   val reactiveStreams = "org.reactivestreams" % "reactive-streams" % "1.0.0"
   val levelDB         = "org.iq80.leveldb" % "leveldb" % "0.7"
   val levelDBJNI      = "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8"
@@ -68,9 +68,9 @@ object Dependencies {
   val scalaLogging    = "com.typesafe.scala-logging" %% "scala-logging" % "3.4.0"
   val scalaReflect    = "org.scala-lang" % "scala-reflect" % scala
   val scalatest       = "org.scalatest" %% "scalatest" % "3.0.0"
-  val slf4jApi        = "org.slf4j" % "slf4j-api" % slf4j
-  val slf4jLog4j      = "org.slf4j" % "slf4j-log4j12" % slf4j
-  val slf4jSimple     = "org.slf4j" % "slf4j-simple" % slf4j
+  //val slf4jApi        = "org.slf4j" % "slf4j-api" % slf4j
+  //val slf4jLog4j      = "org.slf4j" % "slf4j-log4j12" % slf4j
+  //val slf4jSimple     = "org.slf4j" % "slf4j-simple" % slf4j
   val spectatorApi    = "com.netflix.spectator" % "spectator-api" % spectator
   val spectatorLog4j  = "com.netflix.spectator" % "spectator-ext-log4j2" % spectator
   val spectatorM2     = "com.netflix.spectator" % "spectator-reg-metrics2" % spectator

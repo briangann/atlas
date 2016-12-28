@@ -44,8 +44,10 @@ object BuildSettings {
 
   val commonDeps = Seq(
     Dependencies.jsr305,
+    Dependencies.log4jApi,
+    Dependencies.log4jCore,
+    Dependencies.log4jSlf4j,
     Dependencies.scalaLogging,
-    Dependencies.slf4jApi,
     Dependencies.spectatorApi,
     Dependencies.typesafeConfig,
     Dependencies.scalatest % "test")

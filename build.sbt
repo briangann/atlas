@@ -162,16 +162,21 @@ lazy val `atlas-poller-cloudwatch` = project
     Dependencies.iepService
   ))
 
+//    Dependencies.log4jApi,
+//   Dependencies.log4jCore,
+//  Dependencies.log4jSlf4j,
+//  slf4jLog4j
+
 lazy val `atlas-standalone` = project
   .configure(BuildSettings.profile)
   .dependsOn(`atlas-module-akka`, `atlas-module-webapi`)
   .settings(libraryDependencies ++= Seq(
-    Dependencies.iepGuice,
-    Dependencies.guiceCore,
-    Dependencies.guiceMulti,
     Dependencies.log4jApi,
     Dependencies.log4jCore,
     Dependencies.log4jSlf4j,
+    Dependencies.iepGuice,
+    Dependencies.guiceCore,
+    Dependencies.guiceMulti,
     Dependencies.spectatorLog4j,
     Dependencies.akkaCluster,
     Dependencies.akkaClusterSharding,
