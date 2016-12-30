@@ -185,7 +185,12 @@ lazy val `atlas-standalone` = project
     Dependencies.levelDB,
     Dependencies.levelDBJNI,
     Dependencies.chill,
-    Dependencies.chillAkka
+    Dependencies.chillAkka,
+    Dependencies.servoCore,
+    Dependencies.servoAtlas,
+    Dependencies.spectatorRegServo,
+    Dependencies.spectatorExtJVM,
+    Dependencies.spectatorExtGC
   ))
 
 lazy val `atlas-test` = project
