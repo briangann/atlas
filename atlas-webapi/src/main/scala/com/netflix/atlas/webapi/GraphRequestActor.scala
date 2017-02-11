@@ -85,7 +85,9 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
 
       //log.info("GraphRequestActor.req: dbrequest is " + dbRequest)
       // ask only the shards required
-      val futureMap = shardsToAsk.map {
+      val shardList = List.range(0,numberOfShards)
+      //val futureMap = shardsToAsk.map {
+      val futureMap = shardList.map {
         shardId =>
           log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
           val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
@@ -108,18 +110,18 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       // merge the results and send back the data
       master onComplete{
         case l => {
-          //log.debug("GraphRequestActor.req: master onComplete entered")
+          log.info("GraphRequestActor.req: master onComplete entered")
           // we should have all responses now
-          //log.debug("GraphRequestActor.req: master: result as list is " + results)
+          log.info("GraphRequestActor.req: master: result as list is " + results)
           // now merge the results
-          //log.debug("GraphRequestActor.req: master: Merging...")
+          log.info("GraphRequestActor.req: master: Merging...")
           var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
           results.foreach { aDataResponse =>
             aDataResponse.ts.foreach{ item =>
               // check the size of the List in the Map
               var k = item._1
               var v = item._2
-              log.debug("DataResponse key is " + k)
+              log.info("DataResponse key is " + k)
               if (v.size > 0) {
                 //log.info("GraphRequestActor.req: master: this key/value was NOT empty")
                 // need to purge anything with NO_DATA inside
@@ -127,46 +129,46 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                 v.foreach { ts =>
                   if (ts.label.equals("NO DATA")) {
                     // no data detected, not valid
-                    log.debug("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
+                    log.info("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
                   }
                   else {
-                    log.debug("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
+                    log.info("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
                     // append
-                    log.debug("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
+                    log.info("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
                     //ts.data.
                     validData = ts :: validData
                   }
                 }
                 if (validData.size > 0) {
-                  log.debug("GraphRequestActor.req: master: Valid Data is " + validData)
-                  log.debug("GraphRequestActor.req: master: ******mergedData was " + mergedData)
+                  log.info("GraphRequestActor.req: master: Valid Data is " + validData)
+                  log.info("GraphRequestActor.req: master: ******mergedData was " + mergedData)
                   // check if the key exist, if it does, then blend the new data to the existing key's data
                   if (mergedData.contains(k)) {
-                    log.debug("GraphRequestActor.req: master: ****** BLEND dataexpr key exists")
+                    log.info("GraphRequestActor.req: master: ****** BLEND dataexpr key exists")
                     // get the time series for the matching data expression
                     // this will be a list, but with only a single time sequence inside
                     var currentTimeSeries = mergedData.get(k).get.head;
-                    log.debug("GraphRequestActor.req: master: ****** BLEND current timeseq is " + currentTimeSeries)
+                    log.info("GraphRequestActor.req: master: ****** BLEND current timeseq is " + currentTimeSeries)
                     // blend old series with new data
                     currentTimeSeries = currentTimeSeries.blend(validData.head)
                     // the result of the blend is a BinaryOpTimeSeq, which appears to work fine
-                    log.debug("GraphRequestActor.req: master: ****** BLEND current timeseq after blend is " + currentTimeSeries)
+                    log.info("GraphRequestActor.req: master: ****** BLEND current timeseq after blend is " + currentTimeSeries)
                     // convert to a list (can optimize here and just go straight to a list at the merge)
                     var blendedSeries = List[TimeSeries](currentTimeSeries)
-                    log.debug("GraphRequestActor.req: master: ****** BLEND blended series list is " + blendedSeries)
+                    log.info("GraphRequestActor.req: master: ****** BLEND blended series list is " + blendedSeries)
                     // overwrite the old data
                     mergedData.put(k,blendedSeries)
-                    log.debug("GraphRequestActor.req: master: ****** BLEND mergedData is now " + mergedData)
+                    log.info("GraphRequestActor.req: master: ****** BLEND mergedData is now " + mergedData)
                   } else {
                     // just add the new key and valid data
-                    log.debug("GraphRequestActor.req: master: ****** adding new key to mergedData")
+                    log.info("GraphRequestActor.req: master: ****** adding new key to mergedData")
                     mergedData = mergedData ++ Map[DataExpr,List[TimeSeries]](k ->validData)
                   }
                 }
               }
             }
           }
-          log.debug("GraphRequestActor.req: master: mergedData is " + mergedData)
+          log.info("GraphRequestActor.req: master: mergedData is " + mergedData)
           sendImage(mergedData.toMap)
         }
       }
@@ -180,7 +182,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       log.debug("Data is " + data)
       sendImage(data)
     case ev: Http.ConnectionClosed =>
-      log.info("connection closed")
+      log.debug("connection closed")
       context.stop(self)
   }
 
@@ -206,7 +208,26 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                 //}
                 var ti = TaggedItem.computeId(tagsMap)
                 //log.info("TaggedItem computed ID is " + ti)
-                var shardId = ti.abs().mod(BigInteger.valueOf(numberOfShards))
+                var shardId: BigInteger = BigInteger.ZERO
+                // old way using all tags
+                //var shardId = ti.abs().mod(BigInteger.valueOf(numberOfShards))
+                tagsMap.foreach {
+                  aTag =>
+                    if (aTag._1 == "name") {
+                      // found name, get its value
+                      var aTagName = aTag._2
+                      // create a new Map
+                      var justName = Map[String,String](aTag._1  -> aTag._2 )
+                      // now compute the shard id
+                      log.info("GRA: Computing shardId for name: " + justName)
+                      ti = TaggedItem.computeId(justName)
+                      shardId = ti.abs().mod(BigInteger.valueOf(numberOfShards))
+                      log.info("GRA: Compute shardId is: " + shardId)
+
+                      // break - TODO
+                    }
+                }
+                log.info("GRA: Appending shardId: " + shardId)
                 allShards = shardId.intValue() :: allShards
             }
         }

@@ -96,12 +96,12 @@ object Main extends StrictLogging {
   }
 
   private def rateTransform(observer: MetricObserver): MetricObserver = {
-    val heartbeat = 2 * 10;
+    val heartbeat = 2 * 60;
     return new CounterToRateMetricTransform(observer, heartbeat, TimeUnit.SECONDS)
   }
   
   private def async(name: String, observer: MetricObserver): MetricObserver = {
-    val expireTime = 2000 * 10
+    val expireTime = 2000 * 60
     val queueSize = 10
     return new AsyncMetricObserver(name, observer, queueSize, expireTime);
   }
@@ -245,7 +245,7 @@ object Main extends StrictLogging {
   
   private def schedule(poller: MetricPoller, observers: List[MetricObserver]): Unit = {
     var task = new PollRunnable(poller, BasicMetricFilter.MATCH_ALL, true, observers)
-    PollScheduler.getInstance().addPoller(task, 10, TimeUnit.SECONDS)
+    PollScheduler.getInstance().addPoller(task, 60, TimeUnit.SECONDS)
   }
   
   private def initMetricsExtensions(): Unit = {

@@ -156,7 +156,7 @@ class TagsRequestActor extends Actor with ActorLogging {
                   data = data.distinct
               }
               var mergedData = ValueListResponse(data)
-              log.info("Sharded ListValuesRequest.master.onComplete: All done, merged data is: " + mergedData)
+              log.debug("Sharded ListValuesRequest.master.onComplete: All done, merged data is: " + mergedData)
               // send the result back to ourself, so we can re-use the non-clustered case statements
               self ! mergedData
             }
@@ -210,7 +210,7 @@ class TagsRequestActor extends Actor with ActorLogging {
             }
           }
           
-        case _ => log.info("error Unknown class")
+        case _ => log.error("error Unknown class")
       }
   
       
@@ -222,7 +222,7 @@ class TagsRequestActor extends Actor with ActorLogging {
     case KeyListResponse(vs)   if request.useJson => sendJson(vs, offsetString(vs))
     case ValueListResponse(vs) if request.useJson => sendJson(vs, offsetString(vs))
     case ev: Http.ConnectionClosed =>
-      log.info("connection closed")
+      log.debug("connection closed")
       context.stop(self)
   }
 

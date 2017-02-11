@@ -54,17 +54,25 @@ import akka.stream.scaladsl.{Sink, Source}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, StringDeserializer, StringSerializer}
+import org.slf4j.LoggerFactory
 
 object ClusteredPublishActor{
   import com.netflix.atlas.webapi.PublishApi.PublishRequest
   import com.netflix.atlas.config.ConfigManager
 
+  private val logger = LoggerFactory.getLogger(getClass)
+
   def shardName = "ClusteredPublishActor"
   private val config = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  // Kafka Config
   private val kafkaConfig = ConfigManager.current.getConfig("akka.kafka.producer")
   private val kafkaEnabled = config.getBoolean("kafka-enabled")
-
+  // typically atlas-metrics
+  private val kafkaTopicName = config.getString("kafka-topic-name")
+  private val KafkaMetadataMaxAgeMS = config.getInt("kafka-metadata-max-age-ms")
+  // shard config
   private val numberOfShards = config.getInt("number-of-shards")
+  // persistence
   private val retainMinutes = config.getInt("retain-minutes")
 
   private val bignumberOfShards: BigInteger = BigInteger.valueOf(numberOfShards)
@@ -76,7 +84,7 @@ object ClusteredPublishActor{
       //log.info("************** IngestTaggedItem IngestTaggedItem num shards = " + bignumberOfShards)
       //logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid *********")
       var shardId = taggedItemId.abs().mod(bignumberOfShards)
-      //logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
+      logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
       shardId.toString
   }
   
@@ -158,6 +166,8 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   def createKafkaProducer() {
     producerSettings = ProducerSettings(kafkaConfig, new ByteArraySerializer, new StringSerializer)
       .withProperty("client.id", persistenceId)
+      .withProperty("metadata.max.age.ms", KafkaMetadataMaxAgeMS.toString())
+      
     aProducer = producerSettings.createKafkaProducer()
   }
 
@@ -172,9 +182,14 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
         .map { n =>
           // can distribute this message across partitions
           // val partition = math.abs(n) % 2
-          val partition = 0
+          //val partition = 0
+          //ProducerMessage.Message(new ProducerRecord[Array[Byte], String](
+          //  "atlas-metrics", partition, null, n.toString
+          //), n)
+          // See https://kafka.apache.org/0101/javadoc/index.html?org/apache/kafka/clients/producer/KafkaProducer.html
+          // for constructor options, this one forces kafka to round robin (no partition or key is supplied)
           ProducerMessage.Message(new ProducerRecord[Array[Byte], String](
-            "atlas-metrics", partition, null, n.toString
+            kafkaTopicName, n.toString
           ), n)
         }
         .via(Producer.flow(producerSettings,aProducer))
@@ -246,30 +261,30 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       val timeNowMS: Long = System.currentTimeMillis
       val purgeTimestamp = timeNowMS - retentionInterval
       val journalHistorySizeBefore = journalHistory.size
-      log.info(s"##### SaveSnapshotSuccess: journalHistory size before filter: ${journalHistorySizeBefore}")
-      log.info(s"##### SaveSnapshotSuccess: journalHistory before filter: ${journalHistory}")
+      log.debug(s"##### SaveSnapshotSuccess: journalHistory size before filter: ${journalHistorySizeBefore}")
+      log.debug(s"##### SaveSnapshotSuccess: journalHistory before filter: ${journalHistory}")
       journalHistory = journalHistory.filterKeys(_ >= purgeTimestamp)
       // if we did drop data from the journal, purge the messages
       if (journalHistory.size < journalHistorySizeBefore) {
-        log.info(s"##### SaveSnapshotSuccess: journalHistory size after filter: ${journalHistory.size}")
-        log.info(s"##### SaveSnapshotSuccess: journalHistory changed, is now: ${journalHistory}")
+        log.debug(s"##### SaveSnapshotSuccess: journalHistory size after filter: ${journalHistory.size}")
+        log.debug(s"##### SaveSnapshotSuccess: journalHistory changed, is now: ${journalHistory}")
         // keep everything up to what is left, this is a sortedmap, the head will have the oldest timestamp
         val purgeSequence = journalHistory.head
         // we get back a (Long, Long), we want the sequence#
-        log.info(s"###### SaveSnapshotSuccess: oldest journal entry seqNum:${purgeSequence._2}, timeStamp:${purgeSequence._1}")
+        log.debug(s"###### SaveSnapshotSuccess: oldest journal entry seqNum:${purgeSequence._2}, timeStamp:${purgeSequence._1}")
         var purgeSequenceNumber = purgeSequence._2 - 1
         // make sure it is >= 0
         if (purgeSequenceNumber < 0) { purgeSequenceNumber = 0}
         // now purge the journal
-        log.info(s"##### SaveSnapshotSuccess: Deleting journal entries up to sequence ${purgeSequenceNumber}")
+        log.debug(s"##### SaveSnapshotSuccess: Deleting journal entries up to sequence ${purgeSequenceNumber}")
         deleteMessages(purgeSequenceNumber)
       } else {
-        log.info(s"##### SaveSnapshotSuccess: Retaining ALL journal entries")
-        log.info(s"##### SaveSnapshotSuccess: journalHistory contains: ${journalHistory}")
-        log.info(s"##### SaveSnapshotSuccess: journalHistory size: ${journalHistorySizeBefore}")
+        log.debug(s"##### SaveSnapshotSuccess: Retaining ALL journal entries")
+        log.debug(s"##### SaveSnapshotSuccess: journalHistory contains: ${journalHistory}")
+        log.debug(s"##### SaveSnapshotSuccess: journalHistory size: ${journalHistorySizeBefore}")
       }
       // now delete this snapshot
-      log.info(s"##### Deleting snapshot")
+      log.info(s"##### Deleting old snapshot")
       deleteSnapshots(new SnapshotSelectionCriteria(m.sequenceNr, m.timestamp))
     case ShutdownClusteredPublisher =>
       context.stop(self)
@@ -286,8 +301,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       numReceived.record(now - v.timestamp)
       try {
         v.tags.get(TagKey.dsType) match {
-          case Some("counter") => 
-              cache.updateCounter(v)
+          case Some("counter") => cache.updateCounter(v)
           case Some("gauge")   => cache.updateGauge(v)
           case Some("rate")    => cache.updateRate(v)
           case _               => cache.updateRate(v)

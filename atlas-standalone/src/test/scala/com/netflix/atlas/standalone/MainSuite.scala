@@ -20,8 +20,8 @@ import org.scalatest.FunSuite
 
 class MainSuite extends FunSuite {
 
-  test("start/shutdown") {
-    Main.start()
-    Main.shutdown()
-  }
+ // test("start/shutdown") {
+ //   Main.start()
+ //   Main.shutdown()
+ // }
 }
