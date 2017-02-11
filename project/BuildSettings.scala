@@ -42,12 +42,14 @@ object BuildSettings {
     }
   )
 
+  //  Dependencies.log4jSlf4j,
+ //   Dependencies.log4jApi,
+  //  Dependencies.log4jCore,
+    //Dependencies.slf4jApi,
   val commonDeps = Seq(
     Dependencies.jsr305,
-    Dependencies.log4jApi,
-    Dependencies.log4jCore,
-    Dependencies.log4jSlf4j,
     Dependencies.scalaLogging,
+    Dependencies.log4jSlf4j,
     Dependencies.spectatorApi,
     Dependencies.typesafeConfig,
     Dependencies.scalatest % "test")

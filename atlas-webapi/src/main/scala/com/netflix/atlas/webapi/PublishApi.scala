@@ -67,7 +67,9 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
   private val config = ConfigManager.current.getConfig("atlas.webapi.publish")
 
   private val internWhileParsing = config.getBoolean("intern-while-parsing")
-
+  // shard config
+  private val clusterConfig = ConfigManager.current.getConfig("atlas.akka.atlascluster")
+  private val numberOfShards = clusterConfig.getInt("number-of-shards")
   private val rules = ApiSettings.validationRules
 
   def routes: RequestContext => Unit = {
@@ -111,6 +113,7 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
                     var justName = Map[String,String](aTag._1  -> aTag._2 )
                     // now compute the shard id
                     ti = TaggedItem.computeId(justName)
+                    ti = ti.abs().mod(BigInteger.valueOf(numberOfShards))
                   }
               }
               // alternative method is to compute from all of the tags, which spreads the time series across shards, but retrieval/merging becomes
@@ -118,10 +121,10 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
               // var ti = TaggedItem.computeId(x.tags)
               //var id = x.idString
               
-              //logger.info("PublishApi.Ingest: taggedItem ID: " + ti)
+              logger.info("PublishApi.Ingest: taggedItem ID: " + ti)
               var newList: List[Datapoint] = List(x)
               val aReq = validate(newList)
-              //logger.debug(s"PublishApi.Ingest future will send request to " + publishRef.toString())
+              logger.info(s"PublishApi.Ingest future will send request to " + publishRef.toString())
               // use a future to send the data
               val aFuture = publishRef.ask(ClusteredPublishActor.IngestTaggedItem(ti, aReq))(5.seconds).mapTo[HttpResponse]
               aFuture
@@ -135,7 +138,7 @@ class PublishApi(implicit val actorRefFactory: ActorRefFactory, implicit val sys
                 // determine what response we should send back
                 aResponse.status match {
                   case StatusCodes.BadRequest =>
-                    logger.info("PublishApi.Ingest.master.onSuccess: request was bad")
+                    logger.warn("PublishApi.Ingest.master.onSuccess: request was bad")
                     ingestionStatusCode = aResponse.status
                   case StatusCodes.OK =>
                     //logger.info("PublishApi.Ingest.master.onSuccess: all metrics ingested")

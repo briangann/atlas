@@ -1,3 +1,6 @@
+filterScalaLibrary := false // include scala library in output
+
+dependencyDotFile := file("dependencies.dot") //render dot file to `./dependencies.dot`
 
 lazy val root = project.in(file("."))
   .configure(BuildSettings.profile)
@@ -25,8 +28,8 @@ lazy val `atlas-akka` = project
   .dependsOn(`atlas-json`)
   .settings(libraryDependencies ++= Seq(
     Dependencies.akkaActor,
-    Dependencies.akkaPersistence,
     Dependencies.akkaSlf4j,
+    Dependencies.akkaPersistence,
     Dependencies.chill,
     Dependencies.chillAkka,
     Dependencies.iepService,
@@ -80,20 +83,7 @@ lazy val `atlas-module-akka` = project
   .settings(libraryDependencies ++= Seq(
     Dependencies.guiceCore,
     Dependencies.guiceMulti,
-    Dependencies.iepGuice,
-    Dependencies.akkaActor,
-    Dependencies.akkaCluster,
-    Dependencies.akkaClusterSharding,
-    Dependencies.levelDB,
-    Dependencies.levelDBJNI,
-    Dependencies.chill,
-    Dependencies.chillAkka,
-    Dependencies.akkaSlf4j,
-    Dependencies.iepService,
-    Dependencies.spectatorSandbox,
-    Dependencies.sprayCan,
-    Dependencies.sprayRouting,
-    Dependencies.typesafeConfig
+    Dependencies.iepGuice
   ))
 
 lazy val `atlas-module-cloudwatch` = project
@@ -123,22 +113,6 @@ lazy val `atlas-akka-cluster` = project
     Dependencies.akkaActor,
     Dependencies.akkaCluster,
     Dependencies.akkaClusterSharding,
-    Dependencies.redisScala,
-    Dependencies.redisScalaPersistence,
-    Dependencies.akkaStream,
-    Dependencies.akkaStreamKafka,
-    Dependencies.kafka,
-    Dependencies.kafkaClients,
-    Dependencies.reactiveStreams,
-    Dependencies.levelDB,
-    Dependencies.levelDBJNI,
-    Dependencies.chill,
-    Dependencies.chillAkka,
-    Dependencies.akkaSlf4j,
-    Dependencies.iepService,
-    Dependencies.spectatorSandbox,
-    Dependencies.sprayCan,
-    Dependencies.sprayRouting,
     Dependencies.typesafeConfig
   ))
 
@@ -177,16 +151,28 @@ lazy val `atlas-standalone` = project
     Dependencies.iepGuice,
     Dependencies.guiceCore,
     Dependencies.guiceMulti,
-    Dependencies.spectatorLog4j,
     Dependencies.akkaCluster,
     Dependencies.akkaClusterSharding,
-    Dependencies.redisScala,
+    Dependencies.cassandraDriver,
+    Dependencies.akkaPersistenceCassandra,
     Dependencies.redisScalaPersistence,
     Dependencies.levelDB,
     Dependencies.levelDBJNI,
     Dependencies.chill,
-    Dependencies.chillAkka
+    Dependencies.chillAkka,
+    Dependencies.servoCore,
+    Dependencies.servoAtlas,
+    Dependencies.spectatorRegServo,
+    Dependencies.spectatorExtJVM,
+    Dependencies.spectatorExtGC,
+    Dependencies.ioNetty
   ))
+
+//  Dependencies.servoCore,
+//  Dependencies.servoAtlas,
+//  Dependencies.spectatorRegServo,
+//  Dependencies.spectatorExtJVM,
+//  Dependencies.spectatorExtGC
 
 lazy val `atlas-test` = project
   .configure(BuildSettings.profile)
