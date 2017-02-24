@@ -84,10 +84,10 @@ object ClusteredPublishActor{
       //log.info("************** IngestTaggedItem IngestTaggedItem num shards = " + bignumberOfShards)
       //logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid *********")
       var shardId = taggedItemId.abs().mod(bignumberOfShards)
-      logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
+      //logger.info("************** IngestTaggedItem IngestTaggedItem extract shardid = " + shardId)
       shardId.toString
   }
-  
+
   val extractEntityId: ExtractEntityId = {
     case d: IngestTaggedItem =>  (d.taggedItemId.toString(), d)
   }
@@ -111,7 +111,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   import com.netflix.atlas.webapi.PublishApi.FailureMessage
 
   import ClusteredPublishActor._
- 
+
   import scala.concurrent.duration._
 
   private val memDb = db.asInstanceOf[MemoryDatabase]
@@ -126,10 +126,24 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   // Number of invalid datapoints received
   private val numInvalid = registry.createId("atlas.db.numInvalid")
 
+  /** Tracks how many invalid datapoints received */
+  private val numDiscardedDatapoints = registry.counter("atlas.publish.numDiscardedDatapoints")
+  /** Tracks how many metrics have been sent to kafka */
+  private val numKafkaSendSuccess = registry.counter("atlas.publish.kafka.sendSuccess")
+  private val numKafkaSendFailures = registry.counter("atlas.publish.kafka.sendFailures")
+  private val kafkaProducerActive = registry.counter("atlas.publish.kafka.producer.active")
+  
+
   private val cache = new NormalizationCache(DefaultSettings.stepSize, memDb.update)
 
   override def persistenceId = self.path.toStringWithoutAddress
- 
+
+  private val actorShardId = registry.createId("atlas.shard.id")
+
+  // record our persistenceId
+  // need to get the shard# from the persistenceId, then increase the counter to match
+  registry.counter(actorShardId.withTag("persistenceId", persistenceId)).increment()
+  
   var state = ClusterPublishState()
 
   /*
@@ -140,9 +154,9 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   // retain-minutes is defined in the config file
   val retentionInterval = retainMinutes * 60 * 1000
   var recoveryCounter: Long = 0
-  val snapshotDelay = 2.minutes
-  val snapshotInterval = 1.minutes
-  
+  val snapshotDelay = 10.minutes
+  val snapshotInterval = 5.minutes
+
   def updateState(event: ClusterPublishEvt): Long = {
     val purgeTimestamp = System.currentTimeMillis - retentionInterval
     val datapoints = Json.decode[List[Datapoint]](event.data)
@@ -153,7 +167,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       0L
     }
   }
- 
+
   def numEvents =
     state.size
 
@@ -164,11 +178,13 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   var producerSettings : ProducerSettings[Array[Byte], String] = null
 
   def createKafkaProducer() {
-    producerSettings = ProducerSettings(kafkaConfig, new ByteArraySerializer, new StringSerializer)
+   log.info(s"### Creating KAFKA Producer using client.id: ${persistenceId}")
+   producerSettings = ProducerSettings(kafkaConfig, new ByteArraySerializer, new StringSerializer)
       .withProperty("client.id", persistenceId)
       .withProperty("metadata.max.age.ms", KafkaMetadataMaxAgeMS.toString())
-      
+
     aProducer = producerSettings.createKafkaProducer()
+    kafkaProducerActive.increment()
   }
 
   def sendToKafka(evt: ClusterPublishEvt) = {
@@ -197,12 +213,13 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           val record = result.message.record
           log.debug(s"ClusteredPublishActor.sendToKafka: ${record.topic}/${record.partition} ${result.offset}: ${record.value}" +
           s"(${result.message.passThrough})")
+          numKafkaSendSuccess.increment()
         }
         .runWith(Sink.ignore)
     }
     catch {
       case e: Exception =>
-        // ignore
+        numKafkaSendFailures.increment()
         log.warning("Failed to send message to Kafka: " + e.getMessage)
     }
   }
@@ -210,13 +227,17 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   override def receiveRecover: Receive = {
     case evt: ClusterPublishEvt =>
       recoveryCounter += updateState(evt)
-    case SnapshotOffer(metadata, snapshot: ClusterPublishState) =>
-      log.error("### THIS SHOULD NEVER HAPPEN: need to purge all snapshots!")
+    case SnapshotOffer(metadata, offeredSnapshot: ClusterPublishState) =>
+      log.info("### Snapshot offered - ignoring and using journal")
+      //log.info("### Snapshot offered - using it")
+      //log.info("### Snapshot used - state size before: " + state.size)
+      //state = offeredSnapshot
+      //log.info("### Snapshot used - state size after: " + state.size)
     case RecoveryCompleted =>
       log.info(s"################# ClusteredPublishActor: recovery completed, replayed ${recoveryCounter} journal entries")
       recoveryCounter = 0L
   }
- 
+
   override def receiveCommand: Receive = {
     case IngestTaggedItem(id,req) =>
       req match {
@@ -260,57 +281,64 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
       journalHistory += m.timestamp -> m.sequenceNr
       val timeNowMS: Long = System.currentTimeMillis
       val purgeTimestamp = timeNowMS - retentionInterval
+      // The snapshot has everything up to m.SequenceNr, and time m.timestamp
+      // purge all journal entries that are older than the snapshot
+      //val purgeTimestamp = m.timestamp
       val journalHistorySizeBefore = journalHistory.size
-      log.debug(s"##### SaveSnapshotSuccess: journalHistory size before filter: ${journalHistorySizeBefore}")
-      log.debug(s"##### SaveSnapshotSuccess: journalHistory before filter: ${journalHistory}")
+      log.info(s"##### SaveSnapshotSuccess: journalHistory size before filter: ${journalHistorySizeBefore}")
+      log.info(s"##### SaveSnapshotSuccess: journalHistory before filter: ${journalHistory}")
       journalHistory = journalHistory.filterKeys(_ >= purgeTimestamp)
       // if we did drop data from the journal, purge the messages
       if (journalHistory.size < journalHistorySizeBefore) {
-        log.debug(s"##### SaveSnapshotSuccess: journalHistory size after filter: ${journalHistory.size}")
-        log.debug(s"##### SaveSnapshotSuccess: journalHistory changed, is now: ${journalHistory}")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory size after filter: ${journalHistory.size}")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory changed, is now: ${journalHistory}")
         // keep everything up to what is left, this is a sortedmap, the head will have the oldest timestamp
         val purgeSequence = journalHistory.head
         // we get back a (Long, Long), we want the sequence#
-        log.debug(s"###### SaveSnapshotSuccess: oldest journal entry seqNum:${purgeSequence._2}, timeStamp:${purgeSequence._1}")
+        log.info(s"###### SaveSnapshotSuccess: oldest journal entry seqNum:${purgeSequence._2}, timeStamp:${purgeSequence._1}")
         var purgeSequenceNumber = purgeSequence._2 - 1
         // make sure it is >= 0
         if (purgeSequenceNumber < 0) { purgeSequenceNumber = 0}
         // now purge the journal
-        log.debug(s"##### SaveSnapshotSuccess: Deleting journal entries up to sequence ${purgeSequenceNumber}")
+        log.info(s"##### SaveSnapshotSuccess: Deleting journal entries up to sequence ${purgeSequenceNumber}")
         deleteMessages(purgeSequenceNumber)
       } else {
-        log.debug(s"##### SaveSnapshotSuccess: Retaining ALL journal entries")
-        log.debug(s"##### SaveSnapshotSuccess: journalHistory contains: ${journalHistory}")
-        log.debug(s"##### SaveSnapshotSuccess: journalHistory size: ${journalHistorySizeBefore}")
+        log.info(s"##### SaveSnapshotSuccess: Retaining ALL journal entries")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory contains: ${journalHistory}")
+        log.info(s"##### SaveSnapshotSuccess: journalHistory size: ${journalHistorySizeBefore}")
       }
       // now delete this snapshot
-      log.info(s"##### Deleting old snapshot")
+      log.info(s"##### Deleting old snapshots...")
       deleteSnapshots(new SnapshotSelectionCriteria(m.sequenceNr, m.timestamp))
+      log.info(s"##### Deleting old snapshot completed")
     case ShutdownClusteredPublisher =>
       context.stop(self)
   }
-  
+
   private def sendError(ref: ActorRef, status: StatusCode, msg: FailureMessage): Unit = {
     val entity = HttpEntity(MediaTypes.`application/json`, msg.toJson)
     ref ! HttpResponse(status = status, entity = entity)
   }
-  
+
   private def updateCache(vs: List[Datapoint]): Unit = {
     val now = System.currentTimeMillis()
     vs.foreach { v =>
       numReceived.record(now - v.timestamp)
-      try {
+      //try {
         v.tags.get(TagKey.dsType) match {
           case Some("counter") => cache.updateCounter(v)
           case Some("gauge")   => cache.updateGauge(v)
           case Some("rate")    => cache.updateRate(v)
           case _               => cache.updateRate(v)
         }
-      }
-      catch {
-        case e: Exception =>
-          log.error("skipping ingestion, error is:", e)
-      }
+        //log.error(s"Ingestion OK, payload is: ${v}")
+      //}
+      //catch {
+      // case e: Exception =>
+      //    log.error("skipping ingestion, error is:", e)
+      //    log.error(s"skipping ingestion, payload is: ${v}")
+      //    log.error(s"skipping ingestion, vs payload is: ${vs}")
+      //}
     }
   }
 
@@ -318,11 +346,11 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     failures.foreach {
       case ValidationResult.Pass           => // Ignored
       case ValidationResult.Fail(error, _) =>
+        numDiscardedDatapoints.increment()
         registry.counter(numInvalid.withTag("error", error))
     }
   }
-  
+
   // Take a snapshot every snapshotInterval minutes... after waiting snapshotDelay minutes after startup
   context.system.scheduler.schedule(snapshotDelay, snapshotInterval, self, "snap")(context.system.dispatcher, self)
 }
-

@@ -101,9 +101,11 @@ object Main extends StrictLogging {
   }
   
   private def async(name: String, observer: MetricObserver): MetricObserver = {
-    val expireTime = 2000 * 60
-    val queueSize = 10
-    return new AsyncMetricObserver(name, observer, queueSize, expireTime);
+    val expireTime = 2000 * 60  // 2 seconds * poll interval
+    val queueSize = 1000 // roughly 200 metrics are collected
+    //return new AsyncMetricObserver(name, observer, queueSize, expireTime);
+    // unbounded
+    return new AsyncMetricObserver(name, observer);
   }
   
   private def createFileObserver(dir: File): MetricObserver = {
@@ -126,8 +128,8 @@ object Main extends StrictLogging {
           tags.put("nf.node", "unknown")
     }
     logger.info("commontags", tags.toString())
-    val meh = BasicTagList.copyOf(tags)
-        logger.info("commontags meh ", meh.toString())
+    val ctags = BasicTagList.copyOf(tags)
+    logger.info("commontags ", ctags.toString())
 
     return BasicTagList.copyOf(tags);
   }

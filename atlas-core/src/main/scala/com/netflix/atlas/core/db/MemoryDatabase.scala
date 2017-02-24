@@ -32,6 +32,7 @@ import com.netflix.spectator.api.Registry
 import com.netflix.spectator.api.Spectator
 import com.typesafe.config.Config
 import org.slf4j.LoggerFactory
+import java.util.concurrent.atomic.AtomicLong
 
 
 class MemoryDatabase(registry: Registry, config: Config) extends Database {
@@ -53,6 +54,9 @@ class MemoryDatabase(registry: Registry, config: Config) extends Database {
 
   /** How many output datapoints are being processed for transform queries. */
   private val queryOutputDatapoints = registry.counter("atlas.db.queryOutputDatapoints")
+
+  /** Size of the index */
+  private val indexSize = registry.gauge("atlas.db.indexSize", new AtomicLong(0L))
 
   private val step = DefaultSettings.stepSize
   private val blockSize = config.getInt("block-size")
@@ -104,6 +108,7 @@ class MemoryDatabase(registry: Registry, config: Config) extends Database {
           iter.remove()
         }
       }
+      indexSize.set(index.size)
       logger.info("done rebuilding metadata index, " + index.size + " metrics")
 
       BlockStoreItem.retain(_ > cutoff)
