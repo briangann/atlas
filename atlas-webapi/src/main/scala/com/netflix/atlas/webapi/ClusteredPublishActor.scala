@@ -40,6 +40,7 @@ import spray.http.StatusCodes
 import akka.cluster.sharding.ShardRegion
 import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
 import com.netflix.atlas.json.Json
+import java.util.concurrent.atomic.AtomicLong
 
 // for auto schedule of snapshots
 import scala.concurrent.duration.Duration;
@@ -141,9 +142,17 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
   private val actorShardId = registry.createId("atlas.shard.id")
 
   // record our persistenceId
-  // need to get the shard# from the persistenceId, then increase the counter to match
-  registry.counter(actorShardId.withTag("persistenceId", persistenceId)).increment()
-  
+  var shardNumber = -1L
+  try {
+    // need to get the shard# from the persistenceId, then increase the counter to match
+    // persistenceId is in the form: "/system/sharding/ClusteredPublishActor/11/11"
+    shardNumber = persistenceId.split("/")(5).toLong
+    registry.counter(actorShardId.withTag("persistenceId", persistenceId)).increment(shardNumber)
+  }
+  catch {
+    case e: Exception =>
+      log.error(s"Cannot determine shardid from persistenceId ${persistenceId}:" + e)
+  }
   var state = ClusterPublishState()
 
   /*
@@ -324,7 +333,7 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
     val now = System.currentTimeMillis()
     vs.foreach { v =>
       numReceived.record(now - v.timestamp)
-      //try {
+      try {
         v.tags.get(TagKey.dsType) match {
           case Some("counter") => cache.updateCounter(v)
           case Some("gauge")   => cache.updateGauge(v)
@@ -332,13 +341,12 @@ class ClusteredPublishActor(registry: Registry, db: Database) extends Persistent
           case _               => cache.updateRate(v)
         }
         //log.error(s"Ingestion OK, payload is: ${v}")
-      //}
-      //catch {
-      // case e: Exception =>
-      //    log.error("skipping ingestion, error is:", e)
-      //    log.error(s"skipping ingestion, payload is: ${v}")
-      //    log.error(s"skipping ingestion, vs payload is: ${vs}")
-      //}
+      }
+      catch {
+       case e: Exception =>
+          log.debug("skipping ingestion, error is:", e)
+          log.debug(s"skipping ingestion, vs payload is: ${vs}")
+      }
     }
   }
 
