@@ -16,6 +16,8 @@
 package com.netflix.atlas.webapi
 
 import akka.actor.ActorRefFactory
+import akka.actor.ActorSystem
+
 import akka.actor.Props
 import com.netflix.atlas.akka.WebApi
 import com.netflix.atlas.core.index.TagQuery
@@ -24,10 +26,13 @@ import com.netflix.atlas.core.model.QueryVocabulary
 import com.netflix.atlas.core.model.Tag
 import com.netflix.atlas.core.stacklang.Interpreter
 import spray.routing.RequestContext
+import com.netflix.spectator.api.Spectator
 
-class TagsApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
+
+class TagsApi(implicit val actorRefFactory: ActorRefFactory, system: ActorSystem) extends WebApi {
 
   import com.netflix.atlas.webapi.TagsApi._
+  private val registry = Spectator.globalRegistry()
 
   def routes: RequestContext => Unit = {
     pathPrefix("api" / "v1" / "tags") {
@@ -42,7 +47,7 @@ class TagsApi(implicit val actorRefFactory: ActorRefFactory) extends WebApi {
 
   private def doGet(ctx: RequestContext, path: Option[String]): Unit = {
     try {
-      val reqHandler = actorRefFactory.actorOf(Props(new TagsRequestActor))
+      val reqHandler = actorRefFactory.actorOf(Props(new TagsRequestActor(registry, system)))
       reqHandler.tell(toRequest(ctx, path), ctx.responder)
     } catch handleException(ctx)
   }
