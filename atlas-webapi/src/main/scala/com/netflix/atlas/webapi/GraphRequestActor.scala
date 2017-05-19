@@ -83,13 +83,11 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       var results: List[DataResponse] = List()
       var dbRequest = req.toDbRequest
 
-      //log.info("GraphRequestActor.req: dbrequest is " + dbRequest)
-      // ask only the shards required
+      // ask all shards
       val shardList = List.range(0,numberOfShards)
-      //val futureMap = shardsToAsk.map {
       val futureMap = shardList.map {
         shardId =>
-          log.info("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
+          log.debug("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
           val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
           aFuture
       }
@@ -110,14 +108,14 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       // merge the results and send back the data
       master onComplete{
         case l => {
-          log.info("GraphRequestActor.req: master onComplete entered")
+          log.debug("GraphRequestActor.req: master onComplete entered")
           // we have all responses now
-          log.info("GraphRequestActor.req: master: result as list is " + results)
+          log.debug("GraphRequestActor.req: master: result as list is " + results)
           /*
            * The merge process requires matching data expressions (since there may be multiple)
            * and the merging of time series that have matching tags
            */
-          log.info("GraphRequestActor.req: master: Merging...")
+          log.debug("GraphRequestActor.req: master: Merging...")
           var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
           var validData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
           // we may get back an expanded dataexpression, and will need to adjust the merged data as the key will be different
@@ -128,7 +126,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                 key =>
                   if (!mergedData.contains(key)) {
                     // add the data expression into the mergedData map, with an empty time series list
-                    log.info("GraphRequestActor.req: master: DATAEXPR FROM RESULT: " + key)
+                    log.debug("GraphRequestActor.req: master: DATAEXPR FROM RESULT: " + key)
                     mergedData.put(key, List[TimeSeries]())
                     validData.put(key, List[TimeSeries]())
                   }
@@ -145,18 +143,18 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
               // check the size of the List in the Map
               var k = item._1
               var v = item._2
-              log.info("GraphRequestActor.req: master: DataResponse DataExpr is " + k)
+              log.debug("GraphRequestActor.req: master: DataResponse DataExpr is " + k)
               if (v.size > 0) {
                 // Skip any result with with NO_DATA inside the label
                 v.foreach { ts =>
                   if (ts.label.equals("NO DATA")) {
                     // no data detected, not valid
-                    log.info("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
+                    log.debug("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
                   }
                   else {
-                    log.info("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
+                    log.debug("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
                     // append
-                    log.info("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
+                    log.debug("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
                     //
                     // get the timeseries
                     var newData = List[TimeSeries]()
@@ -176,8 +174,8 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
             }
           }
           // Append/Merge as needed
-          log.info("GraphRequestActor.req: master: ****** Merging shard response, mergedData is: " + mergedData)
-          log.info("GraphRequestActor.req: master: ****** Merging shard response, validData is: " + validData)
+          log.debug("GraphRequestActor.req: master: ****** Merging shard response, mergedData is: " + mergedData)
+          log.debug("GraphRequestActor.req: master: ****** Merging shard response, validData is: " + validData)
           
           validData.foreach {
             validDataItem =>
@@ -186,7 +184,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
               validDataItem._2.foreach {
                 aTimeSeries :TimeSeries =>
                   val validDataItemTSTags = aTimeSeries.tags
-                  log.info("GraphRequestActor.req: master: ****** VALID_DATA_ITEM: Expr {} TAGS {}", validDataItemDataExpr, validDataItemTSTags)
+                  log.debug("GraphRequestActor.req: master: ****** VALID_DATA_ITEM: Expr {} TAGS {}", validDataItemDataExpr, validDataItemTSTags)
                   // check if the tags for this dataItem already exist in the mergedData's list of timeseries
                   var storedTimeSeries = List[TimeSeries]()
                   if (mergedData.contains(validDataItemDataExpr)) {
@@ -196,29 +194,29 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                   var foundMatch = false
                   storedTimeSeries.foreach {
                     aTS =>
-                      log.info("GraphRequestActor.req: master: ****** STORED_TIME_SERIES TAGS {} vs VALID_DATA_ITEM TAGS {} ", aTS.tags, validDataItemTSTags)
+                      log.debug("GraphRequestActor.req: master: ****** STORED_TIME_SERIES TAGS {} vs VALID_DATA_ITEM TAGS {} ", aTS.tags, validDataItemTSTags)
                       if (aTS.tags == validDataItemTSTags) {
                         foundMatch = true
-                        log.info("GraphRequestActor.req: master: ****** MATCHING TAGS FOUND, blending existing data: " + mergedData)
+                        log.debug("GraphRequestActor.req: master: ****** MATCHING TAGS FOUND, blending existing data: " + mergedData)
                         // tags matched, blend the storedData with the new data
                         var newStoredTimeSeries: List[TimeSeries] = List()
                         //var blendedSeries = List[TimeSeries](aTS.blend(validDataItemTSList))
                         //log.info("GraphRequestActor.req: master: ****** BLEND blended series list is " + blendedSeries)
                         var newBlendedSeries = aTS.blend(aTimeSeries)
-                        log.info("GraphRequestActor.req: master: ****** BLEND newBendedSeries is " + newBlendedSeries)
+                        log.debug("GraphRequestActor.req: master: ****** BLEND newBendedSeries is " + newBlendedSeries)
                         // overwrite the old data
                         mergedData.put(validDataItemDataExpr,List(newBlendedSeries))
                       }
                   }
                   // this new data wasn't in the storedTimeSeries, so just append it
                   if (!foundMatch) {
-                    log.info("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND in storedTimeSeries, appending " + validDataItem)
-                    log.info("GraphRequestActor.req: master: ****** before append, mergedData is: " + mergedData)
+                    log.debug("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND in storedTimeSeries, appending " + validDataItem)
+                    log.debug("GraphRequestActor.req: master: ****** before append, mergedData is: " + mergedData)
                     var newStoredTimeSeries: List[TimeSeries] = List()
                     newStoredTimeSeries = newStoredTimeSeries ++ storedTimeSeries
                     newStoredTimeSeries = aTimeSeries :: newStoredTimeSeries
                     mergedData.put(validDataItemDataExpr, newStoredTimeSeries)
-                    log.info("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND, after append, mergedData is: " + mergedData)
+                    log.debug("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND, after append, mergedData is: " + mergedData)
                   }              
 
               }
