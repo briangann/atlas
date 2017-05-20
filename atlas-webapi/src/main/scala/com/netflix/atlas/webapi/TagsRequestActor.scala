@@ -62,6 +62,8 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
     case req: Request =>
       request = req
       responseRef = sender()
+      log.info("TagsRequestActor: START Processing Request: " + req.hashCode())
+
       var aDbRequest = req.toDbRequest
       var tq: com.netflix.atlas.core.index.TagQuery = null
       (req.key -> req.verbose) match {
@@ -75,14 +77,14 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
         case x: ListTagsRequest =>
           var z = tq.query.get
           val pairs = Query.tags(z)
-          logger.debug("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
+          //logger.debug("Sharded ListTagsRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[TagListResponse] = List()
           val shardList = List.range(0,numberOfShards)
           val futureMap = shardList.map {
             shardId =>
-              logger.debug("Sharded ListTagsRequest: asking shard: " + shardId)
-              val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTags(shardId, tq))(10.seconds).mapTo[TagListResponse]
+              //logger.debug("Sharded ListTagsRequest: asking shard: " + shardId)
+              val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTags(shardId, tq))(20.seconds).mapTo[TagListResponse]
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
@@ -97,22 +99,24 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
             case l => {
               // merge results
               var data = List[Tag]()
-              logger.debug("Sharded ListTagsRequest: result size: " + results.length)
+              //logger.debug("Sharded ListTagsRequest: result size: " + results.length)
 
               results.foreach {
                 aDataResponse =>
-                  logger.debug("Sharded ListTagsRequest: aDataResponse: " + aDataResponse.toString())
+                  //logger.debug("Sharded ListTagsRequest: aDataResponse: " + aDataResponse.toString())
                   // the response has a list of strings, iterate those and append to drData
                   aDataResponse.vs.foreach {
                     aValue =>
-                      logger.debug("Sharded ListTagsRequest: aValue: " + aValue.toString())
+                      //logger.debug("Sharded ListTagsRequest: aValue: " + aValue.toString())
                       data = aValue :: data
                   }
                   // reduce to distinct values
                   data = data.distinct
               }
               var mergedData = TagListResponse(data)
-              logger.debug("Sharded ListTagsRequest.master.onComplete: All done, merged data is: " + mergedData + " dbReq was: " + req.toDbRequest.toString())
+              //logger.debug("Sharded ListTagsRequest.master.onComplete: All done, merged data is: " + mergedData + " dbReq was: " + req.toDbRequest.toString())
+              log.info("TagsRequestActor: FINISHED Processing Request: " + req.hashCode())
+
               // send the result back to ourself, so we can re-use the non-clustered case statements
               self ! mergedData
             }
@@ -127,14 +131,14 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          logger.debug("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
+          //logger.debug("Sharded ListValuesRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[ValueListResponse] = List()
           val shardList = List.range(0,numberOfShards)
           val futureMap = shardList.map {
             shardId =>
-              logger.debug("Sharded ListValuesRequest: asking shard: " + shardId)
-              val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTagValues(shardId, tq))(10.seconds).mapTo[ValueListResponse]
+              //logger.debug("Sharded ListValuesRequest: asking shard: " + shardId)
+              val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTagValues(shardId, tq))(20.seconds).mapTo[ValueListResponse]
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
@@ -150,24 +154,25 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
             case l => {
               // merge results
               var data = List[String]()
-              logger.debug("Sharded ListValuesRequest: result size: " + results.length)
+              //logger.debug("Sharded ListValuesRequest: result size: " + results.length)
 
               results.foreach {
                 aDataResponse =>
-                  logger.debug("Sharded ListValuesRequest: aDataResponse: " + aDataResponse.toString())
+                  //logger.debug("Sharded ListValuesRequest: aDataResponse: " + aDataResponse.toString())
 
                   // the response has a list of strings, iterate those and append to drData
                   aDataResponse.vs.foreach {
 
                     aValue =>
-                      logger.debug("Sharded ListValuesRequest: aValue: " + aValue.toString())
+                      //logger.debug("Sharded ListValuesRequest: aValue: " + aValue.toString())
                       data = aValue :: data
                   }
                   // reduce to distinct values
                   data = data.distinct
               }
               var mergedData = ValueListResponse(data)
-              logger.debug("Sharded ListValuesRequest.master.onComplete: All done, merged data is: " + mergedData + " dbReq was: " + req.toDbRequest.toString())
+              //logger.debug("Sharded ListValuesRequest.master.onComplete: All done, merged data is: " + mergedData + " dbReq was: " + req.toDbRequest.toString())
+              log.info("TagsRequestActor: FINISHED Processing Request: " + req.hashCode())
 
               // send the result back to ourself, so we can re-use the non-clustered case statements
               self ! mergedData
@@ -184,14 +189,14 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
           var z = tq.query.get
           val pairs = Query.tags(z)
           var ti = TaggedItem.computeId(pairs)
-          logger.debug("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
+          //logger.debug("Sharded ListKeysRequest: Sending db req " + req.toDbRequest.toString())
           // ask all shards
           var results: List[KeyListResponse] = List()
           val shardList = List.range(0,numberOfShards)
           val futureMap = shardList.map {
             shardId =>
-              logger.debug("Sharded ListKeysRequest: asking shard: " + shardId)
-              val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTagKeys(shardId, tq))(10.seconds).mapTo[KeyListResponse]
+              //logger.debug("Sharded ListKeysRequest: asking shard: " + shardId)
+              val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedTagKeys(shardId, tq))(20.seconds).mapTo[KeyListResponse]
               aFuture
           }
           val futureSequence = Future.sequence(futureMap)
@@ -206,21 +211,23 @@ class TagsRequestActor(registry: Registry, system: ActorSystem) extends Actor wi
             case l => {
               // merge results
               var data = List[String]()
-              logger.debug("Sharded ListKeysRequest: result size: " + results.length)
+              //logger.debug("Sharded ListKeysRequest: result size: " + results.length)
               results.foreach {
                 aDataResponse =>
                   // the response has a list of strings, iterate those and append to drData
-                  logger.debug("Sharded ListKeysRequest: aDataResponse: " + aDataResponse.toString())
+                  //logger.debug("Sharded ListKeysRequest: aDataResponse: " + aDataResponse.toString())
                   aDataResponse.vs.foreach {
                     aValue =>
-                      logger.debug("Sharded ListKeysRequest: aValue: " + aValue.toString())
+                      //logger.debug("Sharded ListKeysRequest: aValue: " + aValue.toString())
                       data = aValue :: data
                   }
                   // reduce to distinct values
                   data = data.distinct
               }
               var mergedData = KeyListResponse(data)
-              logger.debug("Sharded ListKeysRequest.master.onComplete: All done, merged data is: " + mergedData + " dbReq was: " + req.toDbRequest.toString())
+              //logger.debug("Sharded ListKeysRequest.master.onComplete: All done, merged data is: " + mergedData + " dbReq was: " + req.toDbRequest.toString())
+              log.info("TagsRequestActor: FINISHED Processing Request: " + req.hashCode())
+
               // send the result back to ourself, so we can re-use the non-clustered case statements
               self ! mergedData
             }
