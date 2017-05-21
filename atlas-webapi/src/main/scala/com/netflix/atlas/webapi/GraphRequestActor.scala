@@ -77,7 +77,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       // important - this is referenced elsewhere and must be first
       responseRef = sender()
       //log.info("GraphRequestActor.req GetShardedData: START Processing Request: " + req.hashCode())
-      log.info("GraphRequestActor.req GetShardedData: START Processing Request: {} sender is {}",req.hashCode(), responseRef.toString())
+      log.info("GraphRequestActor.req GetShardedData: START Processing Request: {} responseRef Host is {}",req.hashCode(), responseRef.path.address.host)
       val t0 = System.nanoTime()
       request = req
       /* the request can be inspected for the tags that will be queried, and only the shards that have those tags need be asked */
