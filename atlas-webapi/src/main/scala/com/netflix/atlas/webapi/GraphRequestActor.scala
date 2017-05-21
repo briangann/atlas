@@ -76,9 +76,12 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
     case req: Request =>
       // important - this is referenced elsewhere and must be first
       responseRef = sender()
+      //log.info("GraphRequestActor.req GetShardedData: START Processing Request: " + req.hashCode())
+      log.info("GraphRequestActor.req GetShardedData: START Processing Request: {} responseRef Host is {}",req.hashCode(), responseRef.path.address.host)
+      val t0 = System.nanoTime()
       request = req
       /* the request can be inspected for the tags that will be queried, and only the shards that have those tags need be asked */
-      var shardsToAsk = getShardsForQuery(req)
+      //var shardsToAsk = getShardsForQuery(req)
       //log.info("GraphRequestActor.req: request is " + req)
       var results: List[DataResponse] = List()
       var dbRequest = req.toDbRequest
@@ -87,8 +90,8 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       val shardList = List.range(0,numberOfShards)
       val futureMap = shardList.map {
         shardId =>
-          log.debug("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
-          val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(10.seconds).mapTo[DataResponse]
+          //log.debug("GraphRequestActor.req GetShardedData: asking shard: " + shardId)
+          val aFuture = dbRef.ask(ClusteredDatabaseActor.GetShardedData(shardId, dbRequest))(20.seconds).mapTo[DataResponse]
           aFuture
       }
       
@@ -108,14 +111,16 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
       // merge the results and send back the data
       master onComplete{
         case l => {
-          log.debug("GraphRequestActor.req: master onComplete entered")
+          //log.debug("GraphRequestActor.req: master onComplete entered")
+          log.info("GraphRequestActor.req GetShardedData: ONCOMPLETE Entered Processing Request: " + req.hashCode())
+
           // we have all responses now
-          log.debug("GraphRequestActor.req: master: result as list is " + results)
+          //log.debug("GraphRequestActor.req: master: result as list is " + results)
           /*
            * The merge process requires matching data expressions (since there may be multiple)
            * and the merging of time series that have matching tags
            */
-          log.debug("GraphRequestActor.req: master: Merging...")
+          //log.debug("GraphRequestActor.req: master: Merging...")
           var mergedData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
           var validData = scala.collection.mutable.Map[DataExpr, List[TimeSeries]]()
           // we may get back an expanded dataexpression, and will need to adjust the merged data as the key will be different
@@ -126,7 +131,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                 key =>
                   if (!mergedData.contains(key)) {
                     // add the data expression into the mergedData map, with an empty time series list
-                    log.debug("GraphRequestActor.req: master: DATAEXPR FROM RESULT: " + key)
+                    //log.debug("GraphRequestActor.req: master: DATAEXPR FROM RESULT: " + key)
                     mergedData.put(key, List[TimeSeries]())
                     validData.put(key, List[TimeSeries]())
                   }
@@ -138,23 +143,21 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
           // DATA RESPONSE FILTERING
           //
           // get the list of timeseries that have data
+          log.info("GraphRequestActor.req GetShardedData: FILTERING Processing Request: " + req.hashCode())
+
           results.foreach { aDataResponse =>
             aDataResponse.ts.foreach{ item =>
               // check the size of the List in the Map
               var k = item._1
               var v = item._2
-              log.debug("GraphRequestActor.req: master: DataResponse DataExpr is " + k)
+              //log.debug("GraphRequestActor.req: master: DataResponse DataExpr is " + k)
               if (v.size > 0) {
                 // Skip any result with with NO_DATA inside the label
                 v.foreach { ts =>
-                  if (ts.label.equals("NO DATA")) {
-                    // no data detected, not valid
-                    log.debug("GraphRequestActor.req: master: NO_DATA detected, skipping this result")
-                  }
-                  else {
-                    log.debug("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
+                  if (!ts.label.equals("NO DATA")) {
+                    //log.debug("GraphRequestActor.req: master: tags of timeseries: " + ts.tags.toString());
                     // append
-                    log.debug("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
+                    //log.debug("GraphRequestActor.req: master: Appending ts to valid data, ts: " + ts)
                     //
                     // get the timeseries
                     var newData = List[TimeSeries]()
@@ -174,9 +177,10 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
             }
           }
           // Append/Merge as needed
-          log.debug("GraphRequestActor.req: master: ****** Merging shard response, mergedData is: " + mergedData)
-          log.debug("GraphRequestActor.req: master: ****** Merging shard response, validData is: " + validData)
-          
+          //log.debug("GraphRequestActor.req: master: ****** Merging shard response, mergedData is: " + mergedData)
+          //log.debug("GraphRequestActor.req: master: ****** Merging shard response, validData is: " + validData)
+          log.info("GraphRequestActor.req GetShardedData: MERGING Processing Request: " + req.hashCode())
+
           validData.foreach {
             validDataItem =>
               val validDataItemDataExpr = validDataItem._1
@@ -184,7 +188,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
               validDataItem._2.foreach {
                 aTimeSeries :TimeSeries =>
                   val validDataItemTSTags = aTimeSeries.tags
-                  log.debug("GraphRequestActor.req: master: ****** VALID_DATA_ITEM: Expr {} TAGS {}", validDataItemDataExpr, validDataItemTSTags)
+                  //log.debug("GraphRequestActor.req: master: ****** VALID_DATA_ITEM: Expr {} TAGS {}", validDataItemDataExpr, validDataItemTSTags)
                   // check if the tags for this dataItem already exist in the mergedData's list of timeseries
                   var storedTimeSeries = List[TimeSeries]()
                   if (mergedData.contains(validDataItemDataExpr)) {
@@ -194,34 +198,36 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
                   var foundMatch = false
                   storedTimeSeries.foreach {
                     aTS =>
-                      log.debug("GraphRequestActor.req: master: ****** STORED_TIME_SERIES TAGS {} vs VALID_DATA_ITEM TAGS {} ", aTS.tags, validDataItemTSTags)
+                      //log.debug("GraphRequestActor.req: master: ****** STORED_TIME_SERIES TAGS {} vs VALID_DATA_ITEM TAGS {} ", aTS.tags, validDataItemTSTags)
                       if (aTS.tags == validDataItemTSTags) {
                         foundMatch = true
-                        log.debug("GraphRequestActor.req: master: ****** MATCHING TAGS FOUND, blending existing data: " + mergedData)
+                        //log.debug("GraphRequestActor.req: master: ****** MATCHING TAGS FOUND, blending existing data: " + mergedData)
                         // tags matched, blend the storedData with the new data
                         var newStoredTimeSeries: List[TimeSeries] = List()
                         //var blendedSeries = List[TimeSeries](aTS.blend(validDataItemTSList))
                         //log.info("GraphRequestActor.req: master: ****** BLEND blended series list is " + blendedSeries)
                         var newBlendedSeries = aTS.blend(aTimeSeries)
-                        log.debug("GraphRequestActor.req: master: ****** BLEND newBendedSeries is " + newBlendedSeries)
+                        //log.debug("GraphRequestActor.req: master: ****** BLEND newBendedSeries is " + newBlendedSeries)
                         // overwrite the old data
                         mergedData.put(validDataItemDataExpr,List(newBlendedSeries))
                       }
                   }
                   // this new data wasn't in the storedTimeSeries, so just append it
                   if (!foundMatch) {
-                    log.debug("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND in storedTimeSeries, appending " + validDataItem)
-                    log.debug("GraphRequestActor.req: master: ****** before append, mergedData is: " + mergedData)
+                    //log.debug("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND in storedTimeSeries, appending " + validDataItem)
+                    //log.debug("GraphRequestActor.req: master: ****** before append, mergedData is: " + mergedData)
                     var newStoredTimeSeries: List[TimeSeries] = List()
                     newStoredTimeSeries = newStoredTimeSeries ++ storedTimeSeries
                     newStoredTimeSeries = aTimeSeries :: newStoredTimeSeries
                     mergedData.put(validDataItemDataExpr, newStoredTimeSeries)
-                    log.debug("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND, after append, mergedData is: " + mergedData)
+                    //log.debug("GraphRequestActor.req: master: ****** NO MATCHING TAGS FOUND, after append, mergedData is: " + mergedData)
                   }              
 
               }
           }
-          log.info("GraphRequestActor.req: master: FINAL mergedData is " + mergedData)
+          //log.debug("GraphRequestActor.req: master: FINAL mergedData is " + mergedData)
+          val t1 = System.nanoTime()
+          log.info("GraphRequestActor.req GetShardedData: FINISHED Processing Request: {} elapsed NS {} ", req.hashCode(), (t1-t0))
           sendImage(mergedData.toMap)
         }
       }
@@ -232,7 +238,7 @@ class GraphRequestActor(registry: Registry, system: ActorSystem) extends Actor w
         }
       }
     case DataResponse(data) =>
-      log.debug("Data is " + data)
+      //log.debug("Data is " + data)
       sendImage(data)
     case ev: Http.ConnectionClosed =>
       log.debug("connection closed")
